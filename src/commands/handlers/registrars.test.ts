@@ -44,7 +44,7 @@ mock.module('node:readline', () => ({
 }));
 
 const capture = () => {
-  let run: ((ctx: { args: unknown; options: unknown }) => unknown) | undefined;
+  let run: ((ctx: Record<string, unknown>) => unknown) | undefined;
   let spec: { options?: { parse: (input: unknown) => unknown } } | undefined;
   const cli: Cli.Cli = {
     command: (_name: string, s: { run: typeof run }) => {
