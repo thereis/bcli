@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/thereis/bcli/compare/bcli-v1.1.1...bcli-v1.2.0) (2026-04-24)
+
+
+### Features
+
+* add version check command to CLI; update README with new command details ([a6fa1b7](https://github.com/thereis/bcli/commit/a6fa1b78d2856adffb71093624bf6059d4afa841))
+
 ## [1.1.1](https://github.com/thereis/bcli/compare/bcli-v1.1.0...bcli-v1.1.1) (2026-04-24)
 
 
