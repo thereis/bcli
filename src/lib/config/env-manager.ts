@@ -1,0 +1,107 @@
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from 'fs';
+import { resolve } from 'path';
+
+const root = () => process.cwd();
+const envPath = () => resolve(root(), '.env');
+const configDir = () => resolve(root(), '.bc');
+const activeFile = () => resolve(configDir(), 'active');
+
+const ensureConfigDir = () => {
+  const dir = configDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+};
+
+export const getEnvPath = (name: string) => resolve(configDir(), `${name}.env`);
+
+export const getActiveEnv = (): string | null => {
+  const f = activeFile();
+  if (!existsSync(f)) return null;
+  return readFileSync(f, 'utf-8').trim();
+};
+
+export const setActiveEnv = (name: string) => {
+  ensureConfigDir();
+  writeFileSync(activeFile(), name);
+};
+
+export const listEnvs = (): { name: string; active: boolean }[] => {
+  const active = getActiveEnv();
+  const dir = configDir();
+  if (!existsSync(dir)) return [];
+
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith('.env'))
+    .map((f) => f.replace('.env', ''));
+
+  return files.map((name) => ({
+    name,
+    active: name === active,
+  }));
+};
+
+export const envExists = (name: string) => existsSync(getEnvPath(name));
+
+export const activateEnv = (name: string) => {
+  const source = getEnvPath(name);
+  if (!existsSync(source)) {
+    throw new Error(
+      `Environment "${name}" does not exist. Run "bc setup --env ${name}" to create it.`,
+    );
+  }
+  copyFileSync(source, envPath());
+  setActiveEnv(name);
+};
+
+export const saveEnvFile = (name: string, content: string) => {
+  ensureConfigDir();
+  writeFileSync(getEnvPath(name), content);
+  copyFileSync(getEnvPath(name), envPath());
+  setActiveEnv(name);
+};
+
+export const removeEnv = (name: string) => {
+  const p = getEnvPath(name);
+  if (!existsSync(p)) {
+    throw new Error(`Environment "${name}" does not exist.`);
+  }
+  const active = getActiveEnv();
+  unlinkSync(p);
+  const f = activeFile();
+  if (active === name && existsSync(f)) {
+    unlinkSync(f);
+  }
+};
+
+export const parseEnvFile = (path: string): Record<string, string> => {
+  if (!existsSync(path)) return {};
+  const content = readFileSync(path, 'utf-8');
+  const result: Record<string, string> = {};
+  for (const line of content.split('\n')) {
+    const match = line.match(/^([^#=]+)=(.*)$/);
+    if (match) {
+      const key = match[1]!.trim();
+      const val = match[2]!.trim().replace(/^["']|["']$/g, '');
+      result[key] = val;
+    }
+  }
+  return result;
+};
+
+export const loadActiveEnv = () => {
+  const name = getActiveEnv();
+  const p = name ? getEnvPath(name) : envPath();
+  const values = parseEnvFile(p);
+  for (const [key, val] of Object.entries(values)) {
+    process.env[key] = val;
+  }
+};

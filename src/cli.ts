@@ -1,0 +1,48 @@
+import { Cli } from 'incur';
+
+const cli = Cli.create('bcli', {
+  version: '1.0.0',
+  description:
+    'BigCommerce CLI — search customers, export data, and manage integrations',
+  config: {
+    flag: 'config',
+    files: ['.bc/config.json', '~/.config/bcli/config.json'],
+  },
+  mcp: {
+    command: `bun ${import.meta.dirname}/cli.ts --mcp`,
+  },
+  format: 'toon',
+});
+
+const { registerSetupCommand } = await import('./commands/setup.ts');
+const { registerEnvCommand } = await import('./commands/env.ts');
+
+registerSetupCommand(cli);
+registerEnvCommand(cli);
+
+const skipEnvCommands = ['setup', 'env'];
+const isSkipped = skipEnvCommands.some((cmd) => process.argv.includes(cmd));
+
+if (!isSkipped) {
+  const { registerCheckCommand } = await import('./commands/check.ts');
+  const { registerCleanCommand } = await import('./commands/clean.ts');
+  const { registerExportCommand } = await import('./commands/export.ts');
+  const { registerGetCommand } = await import('./commands/get.ts');
+  const { registerUpdateCommand } = await import('./commands/update.ts');
+  const { logger } = await import('./lib/shared/logger.ts');
+
+  cli.use((_c, next) => {
+    const verbose =
+      process.argv.includes('-v') || process.argv.includes('--verbose');
+    logger.setVerbose(verbose);
+    return next();
+  });
+
+  registerExportCommand(cli);
+  registerGetCommand(cli);
+  registerUpdateCommand(cli);
+  registerCheckCommand(cli);
+  registerCleanCommand(cli);
+}
+
+cli.serve();

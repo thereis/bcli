@@ -1,0 +1,148 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": false,
+    "includes": [
+      "**",
+      "!**/routeTree.gen.ts",
+      "!!**/.next",
+      "!!**/.nitro",
+      "!!**/.tanstack",
+      "!!**/.turbo",
+      "!!**/.vscode",
+      "!!**/.zed",
+      "!!**/generated",
+      "!!**/dist",
+      "!!**/build",
+      "!!**/out",
+      "!!**/coverage",
+      "!!**/logs",
+      "!!/dist"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 80,
+    "includes": ["**", "!**/routeTree.gen.ts"]
+  },
+  "css": {
+    "formatter": {
+      "enabled": true,
+      "indentStyle": "space",
+      "indentWidth": 2,
+      "lineWidth": 80
+    },
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "correctness": {
+        "useExhaustiveDependencies": "info",
+        "noChildrenProp": "off"
+      },
+      "nursery": {
+        "useSortedClasses": {
+          "level": "warn",
+          "fix": "safe",
+          "options": {
+            "functions": ["clsx", "cva", "cn"]
+          }
+        }
+      },
+      "style": {
+        "useImportType": "on"
+      },
+      "suspicious": {
+        "noArrayIndexKey": "off",
+        "noExplicitAny": "off",
+        "noConsole": "on",
+        "noDuplicateCustomProperties": "warn",
+        "noUnknownAtRules": "off"
+      },
+      "a11y": {
+        "noSvgWithoutTitle": "off",
+        "useKeyWithClickEvents": "off",
+        "noStaticElementInteractions": "off",
+        "noLabelWithoutControl": "off",
+        "useValidAnchor": "off"
+      }
+    },
+    "includes": ["**", "!**/routeTree.gen.ts"]
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "always",
+      "lineWidth": 80,
+      "indentWidth": 2
+    },
+    "parser": {
+      "unsafeParameterDecoratorsEnabled": true
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["apps/web/src/routeTree.gen.ts"],
+      "linter": {
+        "enabled": false
+      }
+    },
+    {
+      "includes": [
+        "**/http-instance.hono.ts",
+        "**/scheduler.ts",
+        "**/*.service.ts",
+        "**/*.repository.ts",
+        "**/*.controller.ts",
+        "**/*.cron.ts",
+        "**/*.queue.ts",
+        "**/*.commands.ts",
+        "**/*.processor.ts",
+        "**/*dispatcher.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useImportType": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/landing/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@prisma/client": "This app is not allowed to import Prisma directly. Use the API layer instead."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
