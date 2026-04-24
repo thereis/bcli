@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Cli } from 'incur';
 
 const cli = Cli.create('bcli', {
@@ -9,7 +10,7 @@ const cli = Cli.create('bcli', {
     files: ['.bc/config.json', '~/.config/bcli/config.json'],
   },
   mcp: {
-    command: `bun ${import.meta.dirname}/cli.ts --mcp`,
+    command: `${process.execPath} "${import.meta.filename}" --mcp`,
   },
   format: 'toon',
 });

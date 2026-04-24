@@ -1,8 +1,8 @@
 import { type Cli, z } from 'incur';
 import { createBcClient } from '../../../lib/bigcommerce/bc-client.ts';
+import type { Cta } from '../../../lib/shared/cta.ts';
 import { handlePromise } from '../../../lib/shared/handle-promise.ts';
 import { exitWithError, runHandler } from '../../../lib/shared/handler-exit.ts';
-import type { Cta } from '../../../lib/shared/cta.ts';
 
 export type GetFeesArgs = { id: string };
 export type GetFeesDeps = {

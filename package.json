@@ -1,5 +1,5 @@
 {
-  "name": "bcli",
+  "name": "@thereis/bcli",
   "version": "1.0.0",
   "description": "BigCommerce CLI — a swiss army knife for BigCommerce stores",
   "license": "BUSL-1.1",
@@ -8,26 +8,50 @@
   "bin": {
     "bcli": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thereis/bcli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/thereis/bcli/issues"
+  },
+  "homepage": "https://github.com/thereis/bcli#readme",
   "scripts": {
     "bcli": "bun src/cli.ts",
-    "build": "bun build src/cli.ts --outdir dist --target node --minify",
+    "build": "bun build src/cli.ts --outdir dist --target node --minify && chmod +x dist/cli.js",
     "dev": "bun src/cli.ts",
     "format": "biome format ./src --write",
     "lint": "biome check ./src --write",
     "lint:check": "biome check ./src",
     "test": "bun test --preload ./src/test-setup.ts",
     "ts-check": "tsc --noEmit",
-    "check": "pnpm run ts-check && pnpm run lint:check && pnpm run test"
+    "check": "pnpm run ts-check && pnpm run lint:check && pnpm run test",
+    "prepublishOnly": "pnpm run check && pnpm run build"
   },
   "keywords": [
     "bigcommerce",
+    "bcli",
     "cli",
+    "ecommerce",
     "export",
-    "customers"
+    "import",
+    "customers",
+    "orders",
+    "products",
+    "catalog",
+    "bigcommerce-api",
+    "mcp",
+    "automation",
+    "devtools"
   ],
   "packageManager": "pnpm@10.15.0",
   "engines": {
-    "bun": ">=1.0.0"
+    "node": ">=20.11"
   },
   "dependencies": {
     "@t3-oss/env-core": "0.13.11",

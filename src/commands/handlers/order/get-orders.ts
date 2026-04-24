@@ -1,12 +1,12 @@
 import { type Cli, z } from 'incur';
 import { createBcClient } from '../../../lib/bigcommerce/bc-client.ts';
+import type { Cta } from '../../../lib/shared/cta.ts';
 import { handlePromise } from '../../../lib/shared/handle-promise.ts';
 import {
   exitWithError,
   exitWithInfo,
   runHandler,
 } from '../../../lib/shared/handler-exit.ts';
-import type { Cta } from '../../../lib/shared/cta.ts';
 import type { OrderWithProducts } from './get-order.ts';
 
 export type GetOrdersOptions = {
