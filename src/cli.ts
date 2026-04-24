@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { Cli } from 'incur';
+import pkg from '../package.json' with { type: 'json' };
 
 const cli = Cli.create('bcli', {
-  version: '1.0.0',
+  version: pkg.version,
   description:
     'BigCommerce CLI — search customers, export data, and manage integrations',
   config: {
@@ -10,7 +11,7 @@ const cli = Cli.create('bcli', {
     files: ['.bc/config.json', '~/.config/bcli/config.json'],
   },
   mcp: {
-    command: `${process.execPath} "${import.meta.filename}" --mcp`,
+    command: 'bcli --mcp',
   },
   format: 'toon',
 });

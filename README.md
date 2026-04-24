@@ -59,14 +59,18 @@ The active env is persisted on disk, so every subsequent command (`get`, `export
 
 ### 4. MCP
 
-Register bcli with your agent:
+Two ways to register bcli with your agent (Claude Code, Cursor, etc.).
+
+**Option A — auto-register** (recommended):
 
 ```sh
 bcli mcp add        # auto-register
 bcli --mcp          # run as stdio MCP server
 ```
 
-Or configure manually:
+This writes the entry to your agent's MCP config for you. Then restart the agent.
+
+**Option B — edit the config manually.** Open `~/.claude.json` (or your agent's equivalent) and add:
 
 ```json
 {
@@ -74,6 +78,14 @@ Or configure manually:
     "bcli": { "command": "bcli", "args": ["--mcp"] }
   }
 }
+```
+
+Restart your agent. The `bcli` command must be on your `PATH` (i.e. installed globally) — using the binary name rather than an absolute path keeps the entry stable across version upgrades.
+
+To run it standalone for debugging:
+
+```sh
+bcli --mcp          # stdio MCP server
 ```
 
 ## Commands
@@ -101,13 +113,13 @@ Run `bcli <command> --help` for full flags on any command.
 
 ## Global Flags
 
-| Flag              | Description                                                              |
-| ----------------- | ------------------------------------------------------------------------ |
-| `-v`, `--verbose` | Detailed per-page, per-batch, and per-customer logging                   |
-| `--format <fmt>`  | Output format (`toon`, `json`, `yaml`, `md`, `jsonl`)                    |
-| `--json`          | Shorthand for `--format json`                                            |
-| `--config <path>` | Load option defaults from a JSON file (`.bc/config.json` by default)     |
-| `--no-config`     | Disable the auto-loaded config file                                      |
+| Flag              | Description                                                          |
+| ----------------- | -------------------------------------------------------------------- |
+| `-v`, `--verbose` | Detailed per-page, per-batch, and per-customer logging               |
+| `--format <fmt>`  | Output format (`toon`, `json`, `yaml`, `md`, `jsonl`)                |
+| `--json`          | Shorthand for `--format json`                                        |
+| `--config <path>` | Load option defaults from a JSON file (`.bc/config.json` by default) |
+| `--no-config`     | Disable the auto-loaded config file                                  |
 
 ## License
 
