@@ -98,6 +98,7 @@ bcli --mcp          # stdio MCP server
 | `env show`                          | Show current environment details                                                 |
 | `env remove <name>`                 | Remove an environment                                                            |
 | `check connection`                  | Test API connection and show store info                                          |
+| `check version`                     | Compare installed bcli version against latest on npm                             |
 | `export customers <key>`            | Fetch customers matching a form-field value                                      |
 | `get customer <email>`              | Look up a customer by email                                                      |
 | `get order <id>`                    | Get order details by ID                                                          |
