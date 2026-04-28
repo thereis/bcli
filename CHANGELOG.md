@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/thereis/bcli/compare/bcli-v1.2.1...bcli-v1.2.2) (2026-04-28)
+
+
+### Bug Fixes
+
+* move bcli config to global storage ([#6](https://github.com/thereis/bcli/issues/6)) ([8dd4e7a](https://github.com/thereis/bcli/commit/8dd4e7a464aa57cd55f2931327ac868070f69dd9))
+
 ## [1.2.1](https://github.com/thereis/bcli/compare/bcli-v1.2.0...bcli-v1.2.1) (2026-04-28)
 
 
