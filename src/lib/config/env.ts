@@ -6,10 +6,8 @@ loadActiveEnv();
 
 export const env = createEnv({
   server: {
-    BC_STORE_HASH: z.string().min(1),
-    BC_ACCESS_TOKEN: z.string().min(1),
-
-    LOG_PRETTY: z.string().default('false'),
+    BC_STORE_HASH: z.string().optional().default(''),
+    BC_ACCESS_TOKEN: z.string().optional().default(''),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
