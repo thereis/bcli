@@ -10,6 +10,6 @@ test('handlePromise returns data on success', async () => {
 test('handlePromise returns error on failure', async () => {
   const [error, data] = await handlePromise(Promise.reject(new Error('fail')));
   expect(error).toBeInstanceOf(Error);
-  expect(error!.message).toBe('fail');
+  expect(error?.message).toBe('fail');
   expect(data).toBeNull();
 });

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import type { createInterface } from 'node:readline';
 import type { FormField } from './form-fields.ts';
 import { collectFormFields } from './form-fields-wizard.ts';
