@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/thereis/bcli/compare/bcli-v1.2.3...bcli-v1.3.0) (2026-04-28)
+
+
+### Features
+
+* auto-check for latest version on startup and fix env loading order ([#10](https://github.com/thereis/bcli/issues/10)) ([f332470](https://github.com/thereis/bcli/commit/f332470549ace6dfd90e68d0edd301a48b4aff56))
+
 ## [1.2.3](https://github.com/thereis/bcli/compare/bcli-v1.2.2...bcli-v1.2.3) (2026-04-28)
 
 
