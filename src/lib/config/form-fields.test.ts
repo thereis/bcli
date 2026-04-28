@@ -76,25 +76,36 @@ describe('isKnownFormField', () => {
 
 describe('load/save form fields', () => {
   const originalCwd = process.cwd();
+  const originalConfigDir = process.env.BCLI_CONFIG_DIR;
   let workDir = '';
+  let configDir = '';
 
   beforeEach(() => {
     workDir = mkdtempSync(join(tmpdir(), 'ff-'));
+    configDir = mkdtempSync(join(tmpdir(), 'ff-config-'));
+    process.env.BCLI_CONFIG_DIR = configDir;
     process.chdir(workDir);
   });
 
   afterEach(() => {
     process.chdir(originalCwd);
+    if (originalConfigDir === undefined) {
+      delete process.env.BCLI_CONFIG_DIR;
+    } else {
+      process.env.BCLI_CONFIG_DIR = originalConfigDir;
+    }
     rmSync(workDir, { recursive: true, force: true });
+    rmSync(configDir, { recursive: true, force: true });
   });
 
   test('loadFormFields returns [] when file missing', () => {
     expect(loadFormFields()).toEqual([]);
   });
 
-  test('saveFormFields creates .bc dir and writes JSON', () => {
+  test('saveFormFields creates global config dir and writes JSON', () => {
     const fields: FormField[] = [{ name: 'X', type: 'string' }];
     saveFormFields(fields);
+    expect(getFormFieldsPath()).toBe(join(configDir, 'form-fields.json'));
     expect(existsSync(getFormFieldsPath())).toBe(true);
     const parsed = JSON.parse(readFileSync(getFormFieldsPath(), 'utf-8'));
     expect(parsed).toEqual({ formFields: fields });

@@ -27,7 +27,7 @@ export const registerEnvCommand = (cli: Cli.Cli) => {
 
       if (envs.length === 0) {
         logger.info(
-          'No environments found. Run "bc setup --env <name>" to create one.',
+          'No environments found. Run "bcli setup --env <name>" to create one.',
         );
         return { environments: [] };
       }
@@ -77,7 +77,7 @@ export const registerEnvCommand = (cli: Cli.Cli) => {
       const target = args.name ?? getActiveEnv();
       if (!target) {
         logger.info(
-          'No active environment. Run "bc env use <name>" to activate one.',
+          'No active environment. Run "bcli env use <name>" to activate one.',
         );
         return { name: null, active: false, values: {} };
       }

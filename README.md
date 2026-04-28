@@ -18,13 +18,13 @@ pnpm add -g @thereis/bcli
 
 ### 1. Setup
 
-Run the interactive wizard in your project directory:
+Run the interactive wizard:
 
 ```sh
 bcli setup
 ```
 
-It prompts for store hash + API token, optional pretty logging, and (optionally) pulls your store's custom form fields so `export customers` can validate `--field` args. Credentials go to `.bc/<env>.env`; form fields to `.bc/form-fields.json`. Both are gitignored.
+It prompts for store hash + API token, optional pretty logging, and (optionally) pulls your store's custom form fields so `export customers` can validate `--field` args. Credentials go to `~/.bcli/<env>.env`; form fields to `~/.bcli/form-fields.json`.
 
 Add more environments with `bcli setup --env production`.
 
@@ -45,7 +45,7 @@ bcli export customers fdd \
 
 ### 3. Environments
 
-Work against multiple stores (sandbox, staging, production) from the same machine. Each `bcli setup --env <name>` run creates a separate `.bc/<name>.env` file.
+Work against multiple stores (sandbox, staging, production) from the same machine. Each `bcli setup --env <name>` run creates a separate `~/.bcli/<name>.env` file.
 
 ```sh
 bcli setup --env production      # create another env
@@ -119,7 +119,7 @@ Run `bcli <command> --help` for full flags on any command.
 | `-v`, `--verbose` | Detailed per-page, per-batch, and per-customer logging               |
 | `--format <fmt>`  | Output format (`toon`, `json`, `yaml`, `md`, `jsonl`)                |
 | `--json`          | Shorthand for `--format json`                                        |
-| `--config <path>` | Load option defaults from a JSON file (`.bc/config.json` by default) |
+| `--config <path>` | Load option defaults from a JSON file (`~/.bcli/config.json` by default) |
 | `--no-config`     | Disable the auto-loaded config file                                  |
 
 ## License

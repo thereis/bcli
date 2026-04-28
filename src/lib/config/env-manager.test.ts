@@ -22,16 +22,26 @@ import {
 } from './env-manager.ts';
 
 const originalCwd = process.cwd();
+const originalConfigDir = process.env.BCLI_CONFIG_DIR;
 let workDir = '';
+let configDir = '';
 
 beforeEach(() => {
   workDir = mkdtempSync(join(tmpdir(), 'env-mgr-'));
+  configDir = mkdtempSync(join(tmpdir(), 'env-mgr-config-'));
+  process.env.BCLI_CONFIG_DIR = configDir;
   process.chdir(workDir);
 });
 
 afterEach(() => {
   process.chdir(originalCwd);
+  if (originalConfigDir === undefined) {
+    delete process.env.BCLI_CONFIG_DIR;
+  } else {
+    process.env.BCLI_CONFIG_DIR = originalConfigDir;
+  }
   rmSync(workDir, { recursive: true, force: true });
+  rmSync(configDir, { recursive: true, force: true });
 });
 
 describe('env-manager', () => {
@@ -45,7 +55,7 @@ describe('env-manager', () => {
   });
 
   test('getEnvPath returns config path for named env', () => {
-    expect(getEnvPath('staging')).toEndWith('.bc/staging.env');
+    expect(getEnvPath('staging')).toBe(join(configDir, 'staging.env'));
   });
 
   test('listEnvs returns [] when config dir missing', () => {
@@ -67,20 +77,18 @@ describe('env-manager', () => {
     expect(envExists('present')).toBe(true);
   });
 
-  test('saveEnvFile writes both the named env and .env, sets active', () => {
+  test('saveEnvFile writes the named env globally and sets active', () => {
     saveEnvFile('dev', 'FOO=bar\n');
-    expect(readFileSync(join(process.cwd(), '.env'), 'utf-8')).toBe(
-      'FOO=bar\n',
-    );
+    expect(existsSync(join(process.cwd(), '.env'))).toBe(false);
     expect(readFileSync(getEnvPath('dev'), 'utf-8')).toBe('FOO=bar\n');
     expect(getActiveEnv()).toBe('dev');
   });
 
-  test('activateEnv copies env file to .env and sets active', () => {
+  test('activateEnv sets active without writing repo .env', () => {
     saveEnvFile('dev', 'A=1\n');
     saveEnvFile('prod', 'A=2\n');
     activateEnv('dev');
-    expect(readFileSync(join(process.cwd(), '.env'), 'utf-8')).toBe('A=1\n');
+    expect(existsSync(join(process.cwd(), '.env'))).toBe(false);
     expect(getActiveEnv()).toBe('dev');
   });
 

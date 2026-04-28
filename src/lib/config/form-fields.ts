@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
+import { getConfigDir } from './paths.ts';
 
-const configDir = () => resolve(process.cwd(), '.bc');
-const formFieldsPath = () => resolve(configDir(), 'form-fields.json');
+const formFieldsPath = () => resolve(getConfigDir(), 'form-fields.json');
 
 export const formFieldSchema = z.object({
   name: z.string().min(1),
@@ -37,8 +37,9 @@ export const loadFormFields = (): FormField[] => {
 };
 
 export const saveFormFields = (fields: FormField[]) => {
-  if (!existsSync(configDir())) {
-    mkdirSync(configDir(), { recursive: true });
+  const configDir = getConfigDir();
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true });
   }
   const content = JSON.stringify({ formFields: fields }, null, 2);
   writeFileSync(formFieldsPath(), `${content}\n`);
