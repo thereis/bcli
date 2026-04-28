@@ -1,6 +1,5 @@
+import { createInterface } from 'node:readline';
 import { type Cli, z } from 'incur';
-import { resolve } from 'path';
-import { createInterface } from 'readline';
 import { testStoreConnection } from '../lib/bigcommerce/test-store-connection.ts';
 import {
   envExists,
@@ -10,6 +9,7 @@ import {
 } from '../lib/config/env-manager.ts';
 import { loadFormFields, saveFormFields } from '../lib/config/form-fields.ts';
 import { collectFormFields } from '../lib/config/form-fields-wizard.ts';
+import { getLocalEnvPath } from '../lib/config/paths.ts';
 import { logger, stdout } from '../lib/shared/logger.ts';
 
 type Step = {
@@ -79,7 +79,7 @@ export const registerSetupCommand = (cli: Cli.Cli) => {
       });
 
       const envFileValues = parseEnvFile(envPath);
-      const dotEnvValues = parseEnvFile(resolve(process.cwd(), '.env'));
+      const dotEnvValues = parseEnvFile(getLocalEnvPath());
       const existing =
         Object.keys(envFileValues).length > 0 ? envFileValues : dotEnvValues;
       const hasExisting = Object.keys(existing).length > 0;
@@ -244,7 +244,7 @@ export const registerSetupCommand = (cli: Cli.Cli) => {
       logger.info(`Saved and activated "${targetEnv}" environment.`);
       if (formFields.length > 0) {
         logger.info(
-          `Saved ${formFields.length} form field(s) to .bc/form-fields.json.`,
+          `Saved ${formFields.length} form field(s) to ~/.bcli/form-fields.json.`,
         );
       }
     },

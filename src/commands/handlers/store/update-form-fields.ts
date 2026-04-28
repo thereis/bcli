@@ -65,7 +65,9 @@ export const updateFormFieldsHandler = async (
   }
 
   deps.save(fields);
-  logger.info(`Saved ${fields.length} form field(s) to .bc/form-fields.json.`);
+  logger.info(
+    `Saved ${fields.length} form field(s) to ~/.bcli/form-fields.json.`,
+  );
   return { data: { formFields: fields }, cta };
 };
 
@@ -80,7 +82,7 @@ export const registerUpdateFormFieldsSubcommand = (
   const collect = deps.collect ?? collectViaReadline;
   parent.command('form-fields', {
     description:
-      'Update the local form-fields registry (.bc/form-fields.json) — fetch from BigCommerce or edit manually',
+      'Update the global form-fields registry (~/.bcli/form-fields.json) — fetch from BigCommerce or edit manually',
     options: z.object({
       verbose: z
         .boolean()

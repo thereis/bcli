@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync } from 'node:fs';
 import { type Cli, z } from 'incur';
 import { createBcClient } from '../../../lib/bigcommerce/bc-client.ts';
 import type { Customer } from '../../../lib/bigcommerce/schemas.ts';
@@ -77,7 +77,7 @@ export const validateField = (
 ): void => {
   if (known.length > 0 && !isKnownFormField(field, known)) {
     exitWithError(
-      `Field "${field}" is not registered in .bc/form-fields.json. Known: ${known.map((f) => f.name).join(', ')}`,
+      `Field "${field}" is not registered in ~/.bcli/form-fields.json. Known: ${known.map((f) => f.name).join(', ')}`,
     );
   }
   const registered = known.find((f) => f.name === field);
@@ -204,7 +204,7 @@ export const registerExportCustomersSubcommand = (parent: Cli.Cli) => {
     options: z.object({
       field: z
         .string()
-        .describe('Form field name to match (from .bc/form-fields.json)'),
+        .describe('Form field name to match (from ~/.bcli/form-fields.json)'),
       value: z.string().describe('Form field value to match (e.g. "True")'),
       columns: z
         .string()
