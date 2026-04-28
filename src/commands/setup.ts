@@ -39,15 +39,6 @@ const STEPS: Step[] = [
     required: true,
     secret: true,
   },
-  {
-    key: 'LOG_PRETTY',
-    label: 'Pretty Logging',
-    prompt: 'Enable pretty-printed logs? (true/false)',
-    required: false,
-    defaultValue: 'false',
-    validate: (v) =>
-      ['true', 'false'].includes(v) ? null : 'Must be "true" or "false"',
-  },
 ];
 
 const ask = (
