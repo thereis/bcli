@@ -41,6 +41,11 @@ if (!isSkipped) {
     return next();
   });
 
+  const { checkLatestVersion } = await import(
+    './lib/shared/check-latest-version.ts'
+  );
+  checkLatestVersion();
+
   registerExportCommand(cli);
   registerGetCommand(cli);
   registerUpdateCommand(cli);
