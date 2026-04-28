@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/thereis/bcli/compare/bcli-v1.2.0...bcli-v1.2.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* make env vars optional to prevent CLI crash without credentials ([#4](https://github.com/thereis/bcli/issues/4)) ([81aed56](https://github.com/thereis/bcli/commit/81aed563241bf06a27f21477e424c7bf447bd8ea))
+
 ## [1.2.0](https://github.com/thereis/bcli/compare/bcli-v1.1.1...bcli-v1.2.0) (2026-04-24)
 
 
