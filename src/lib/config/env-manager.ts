@@ -5,8 +5,8 @@ import {
   readFileSync,
   unlinkSync,
   writeFileSync,
-} from 'fs';
-import { resolve } from 'path';
+} from 'node:fs';
+import { resolve } from 'node:path';
 import { getConfigDir, getLocalEnvPath } from './paths.ts';
 
 const activeFile = () => resolve(getConfigDir(), 'active');

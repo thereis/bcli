@@ -1,12 +1,12 @@
-import { parse } from 'csv-parse';
 import {
   appendFileSync,
   createReadStream,
   existsSync,
   mkdirSync,
   writeFileSync,
-} from 'fs';
-import { dirname } from 'path';
+} from 'node:fs';
+import { dirname } from 'node:path';
+import { parse } from 'csv-parse';
 
 export const obscure = (email: string) => {
   const [local = '', domain = ''] = email.split('@');
@@ -40,7 +40,7 @@ export const appendCsvRow = (filePath: string, row: Record<string, string>) => {
     const headerLine = Object.keys(row)
       .map((k) => `"${k}"`)
       .join(',');
-    writeFileSync(filePath, headerLine + '\n');
+    writeFileSync(filePath, `${headerLine}\n`);
   }
-  appendFileSync(filePath, values.join(',') + '\n');
+  appendFileSync(filePath, `${values.join(',')}\n`);
 };

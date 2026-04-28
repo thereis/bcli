@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import type { ProgressState } from '../bigcommerce/schemas.ts';
 
 export const loadProgress = (path: string): ProgressState | null => {
