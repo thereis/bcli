@@ -95,11 +95,17 @@ export const parseEnvFile = (path: string): Record<string, string> => {
   return result;
 };
 
-export const loadActiveEnv = () => {
-  const name = getActiveEnv();
-  const p = name ? getEnvPath(name) : getLocalEnvPath();
-  const values = parseEnvFile(p);
+const applyEnvValues = (values: Record<string, string>) => {
   for (const [key, val] of Object.entries(values)) {
     process.env[key] = val;
+  }
+};
+
+export const loadActiveEnv = () => {
+  applyEnvValues(parseEnvFile(getLocalEnvPath()));
+
+  const name = getActiveEnv();
+  if (name) {
+    applyEnvValues(parseEnvFile(getEnvPath(name)));
   }
 };

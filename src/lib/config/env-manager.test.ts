@@ -144,4 +144,20 @@ describe('env-manager', () => {
     expect(process.env.BC_TEST_LOAD_2).toBe('beta');
     delete process.env.BC_TEST_LOAD_2;
   });
+
+  test('loadActiveEnv loads local .env first then named env overrides', () => {
+    writeFileSync(
+      join(process.cwd(), '.env'),
+      'BC_TEST_BASE=local\nBC_TEST_ONLY_LOCAL=yes\n',
+    );
+    saveEnvFile('dev', 'BC_TEST_BASE=from-dev\nBC_TEST_ONLY_DEV=yes\n');
+    setActiveEnv('dev');
+    loadActiveEnv();
+    expect(process.env.BC_TEST_BASE).toBe('from-dev');
+    expect(process.env.BC_TEST_ONLY_LOCAL).toBe('yes');
+    expect(process.env.BC_TEST_ONLY_DEV).toBe('yes');
+    delete process.env.BC_TEST_BASE;
+    delete process.env.BC_TEST_ONLY_LOCAL;
+    delete process.env.BC_TEST_ONLY_DEV;
+  });
 });
