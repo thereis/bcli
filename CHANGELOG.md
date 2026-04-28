@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.3](https://github.com/thereis/bcli/compare/bcli-v1.2.2...bcli-v1.2.3) (2026-04-28)
+
+
+### Bug Fixes
+
+* resolve lint errors breaking CI release pipeline ([#8](https://github.com/thereis/bcli/issues/8)) ([c82ec0e](https://github.com/thereis/bcli/commit/c82ec0ebdd424d4cb682f231790584b242bd2160))
+
 ## [1.2.2](https://github.com/thereis/bcli/compare/bcli-v1.2.1...bcli-v1.2.2) (2026-04-28)
 
 
