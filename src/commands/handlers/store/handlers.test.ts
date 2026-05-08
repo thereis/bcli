@@ -24,17 +24,13 @@ import {
   registerCheckConnectionSubcommand,
 } from './check-connection.ts';
 import {
-  getFormFieldsHandler,
-  registerGetFormFieldsSubcommand,
-} from './get-form-fields.ts';
-import {
   deleteWebhookHandler,
   registerDeleteWebhookSubcommand,
 } from './delete-webhook.ts';
 import {
-  updateWebhookHandler,
-  registerUpdateWebhookSubcommand,
-} from './update-webhook.ts';
+  getFormFieldsHandler,
+  registerGetFormFieldsSubcommand,
+} from './get-form-fields.ts';
 import {
   getWebhooksHandler,
   registerGetWebhooksSubcommand,
@@ -44,6 +40,10 @@ import {
   registerUpdateFormFieldsSubcommand,
   updateFormFieldsHandler,
 } from './update-form-fields.ts';
+import {
+  registerUpdateWebhookSubcommand,
+  updateWebhookHandler,
+} from './update-webhook.ts';
 
 const store: StoreInfo = {
   id: 'acme-hash',
