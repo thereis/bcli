@@ -28,6 +28,18 @@ import {
   registerGetFormFieldsSubcommand,
 } from './get-form-fields.ts';
 import {
+  deleteWebhookHandler,
+  registerDeleteWebhookSubcommand,
+} from './delete-webhook.ts';
+import {
+  updateWebhookHandler,
+  registerUpdateWebhookSubcommand,
+} from './update-webhook.ts';
+import {
+  getWebhooksHandler,
+  registerGetWebhooksSubcommand,
+} from './get-webhooks.ts';
+import {
   collectViaReadline,
   registerUpdateFormFieldsSubcommand,
   updateFormFieldsHandler,
@@ -150,6 +162,152 @@ describe('getFormFieldsHandler', () => {
   });
 });
 
+describe('updateWebhookHandler', () => {
+  const sampleWebhook = {
+    id: 1,
+    client_id: 'abc',
+    store_hash: 'xyz',
+    scope: 'store/order/created',
+    destination: 'https://example.com/hook',
+    is_active: false,
+    created_at: 1700000000,
+    updated_at: 1700000002,
+  };
+
+  test('sets is_active to false', async () => {
+    const patches: unknown[] = [];
+    const result = await updateWebhookHandler(
+      { id: '1' },
+      { is_active: 'false' },
+      {
+        updateWebhook: async (_id, patch) => {
+          patches.push(patch);
+          return sampleWebhook;
+        },
+      },
+    );
+    expect(patches).toEqual([{ is_active: false }]);
+    expect(result.data.is_active).toBe(false);
+    expect(result.cta.commands).toHaveLength(1);
+  });
+
+  test('sets is_active to true', async () => {
+    const result = await updateWebhookHandler(
+      { id: '1' },
+      { is_active: 'true' },
+      { updateWebhook: async () => ({ ...sampleWebhook, is_active: true }) },
+    );
+    expect(result.data.is_active).toBe(true);
+  });
+
+  test('throws on invalid id', async () => {
+    await expect(
+      updateWebhookHandler(
+        { id: 'bad' },
+        { is_active: 'false' },
+        { updateWebhook: async () => sampleWebhook },
+      ),
+    ).rejects.toThrow('Invalid webhook ID');
+  });
+
+  test('throws on invalid --active value', async () => {
+    await expect(
+      updateWebhookHandler(
+        { id: '1' },
+        { is_active: 'maybe' },
+        { updateWebhook: async () => sampleWebhook },
+      ),
+    ).rejects.toThrow('--is_active must be');
+  });
+
+  test('propagates API errors', async () => {
+    await expect(
+      updateWebhookHandler(
+        { id: '1' },
+        { is_active: 'false' },
+        {
+          updateWebhook: async () => {
+            throw new Error('API error');
+          },
+        },
+      ),
+    ).rejects.toThrow('API error');
+  });
+});
+
+describe('deleteWebhookHandler', () => {
+  test('returns deleted=true with the id', async () => {
+    const deleted: number[] = [];
+    const result = await deleteWebhookHandler(
+      { id: '42' },
+      {
+        deleteWebhook: async (id) => {
+          deleted.push(id);
+        },
+      },
+    );
+    expect(result.data).toEqual({ deleted: true, id: 42 });
+    expect(deleted).toEqual([42]);
+    expect(result.cta.commands).toHaveLength(1);
+  });
+
+  test('propagates errors from dep', async () => {
+    await expect(
+      deleteWebhookHandler(
+        { id: '1' },
+        {
+          deleteWebhook: async () => {
+            throw new Error('not found');
+          },
+        },
+      ),
+    ).rejects.toThrow('not found');
+  });
+});
+
+describe('getWebhooksHandler', () => {
+  const sampleWebhook = {
+    id: 1,
+    client_id: 'abc',
+    store_hash: 'xyz',
+    scope: 'store/order/created',
+    destination: 'https://example.com/hook',
+    is_active: true,
+    created_at: 1700000000,
+    updated_at: 1700000001,
+  };
+
+  test('returns webhooks from dep', async () => {
+    const result = await getWebhooksHandler(
+      {},
+      { getWebhooks: async () => [sampleWebhook] },
+    );
+    expect(result.data).toEqual([sampleWebhook]);
+    expect(result.cta.commands).toEqual([]);
+  });
+
+  test('returns empty array when no webhooks', async () => {
+    const result = await getWebhooksHandler(
+      {},
+      { getWebhooks: async () => [] },
+    );
+    expect(result.data).toEqual([]);
+  });
+
+  test('propagates errors from dep', async () => {
+    await expect(
+      getWebhooksHandler(
+        {},
+        {
+          getWebhooks: async () => {
+            throw new Error('API down');
+          },
+        },
+      ),
+    ).rejects.toThrow('API down');
+  });
+});
+
 describe('updateFormFieldsHandler', () => {
   const existing: FormField[] = [{ name: 'A', type: 'string' }];
 
@@ -195,7 +353,10 @@ describe('collectViaReadline', () => {
 describe('registrars', () => {
   test('are functions', () => {
     expect(typeof registerCheckConnectionSubcommand).toBe('function');
+    expect(typeof registerDeleteWebhookSubcommand).toBe('function');
     expect(typeof registerGetFormFieldsSubcommand).toBe('function');
+    expect(typeof registerGetWebhooksSubcommand).toBe('function');
+    expect(typeof registerUpdateWebhookSubcommand).toBe('function');
     expect(typeof registerUpdateFormFieldsSubcommand).toBe('function');
   });
 });

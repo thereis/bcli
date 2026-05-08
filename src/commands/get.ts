@@ -7,6 +7,7 @@ import { registerGetOrderSubcommand } from './handlers/order/get-order.ts';
 import { registerGetOrdersSubcommand } from './handlers/order/get-orders.ts';
 import { registerGetProgressSubcommand } from './handlers/progress/get-progress.ts';
 import { registerGetFormFieldsSubcommand } from './handlers/store/get-form-fields.ts';
+import { registerGetWebhooksSubcommand } from './handlers/store/get-webhooks.ts';
 
 export const registerGetCommand = (cli: Cli.Cli) => {
   const getCli = Cli.create('get', {
@@ -19,6 +20,7 @@ export const registerGetCommand = (cli: Cli.Cli) => {
   registerGetCartSubcommand(getCli);
   registerGetFeesSubcommand(getCli);
   registerGetFormFieldsSubcommand(getCli);
+  registerGetWebhooksSubcommand(getCli);
   registerGetProgressSubcommand(getCli);
   registerGetSearchSubcommand(getCli);
 

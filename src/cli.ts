@@ -29,6 +29,7 @@ const isSkipped = skipEnvCommands.some((cmd) => process.argv.includes(cmd));
 if (!isSkipped) {
   const { registerCheckCommand } = await import('./commands/check.ts');
   const { registerCleanCommand } = await import('./commands/clean.ts');
+  const { registerDeleteCommand } = await import('./commands/delete.ts');
   const { registerExportCommand } = await import('./commands/export.ts');
   const { registerGetCommand } = await import('./commands/get.ts');
   const { registerUpdateCommand } = await import('./commands/update.ts');
@@ -49,6 +50,7 @@ if (!isSkipped) {
   registerExportCommand(cli);
   registerGetCommand(cli);
   registerUpdateCommand(cli);
+  registerDeleteCommand(cli);
   registerCheckCommand(cli);
   registerCleanCommand(cli);
 }

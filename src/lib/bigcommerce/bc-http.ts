@@ -76,6 +76,11 @@ export class BcHttpClient {
     return this.api.get(url).json<unknown>();
   }
 
+  async deleteV3Raw(req: RawRequest): Promise<void> {
+    const url = buildUrl(this.v3, req.path, req.params);
+    await this.api.delete(url);
+  }
+
   async putV3Raw<T>(req: RawRequest & { body: unknown }): Promise<T> {
     const url = buildUrl(this.v3, req.path, req.params);
     return this.api
