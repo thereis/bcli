@@ -100,15 +100,16 @@ const fetchFromStore = async (
   );
   const indices = parseSelection(picks, listed.length);
 
-  return indices.map((i) => {
-    const rf = listed[i]!;
+  return indices.flatMap((i) => {
+    const rf = listed[i];
+    if (!rf) return [];
     const field: FormField = {
       name: getFieldName(rf),
       type: mapBcType(getFieldType(rf)),
     };
     const options = getFieldOptions(rf);
     if (options) field.options = options;
-    return field;
+    return [field];
   });
 };
 

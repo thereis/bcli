@@ -152,8 +152,8 @@ export const registerSetupCommand = (cli: Cli.Cli) => {
 
       while (!connected) {
         const [connError, store] = await testStoreConnection(
-          values.BC_STORE_HASH!,
-          values.BC_ACCESS_TOKEN!,
+          values.BC_STORE_HASH ?? '',
+          values.BC_ACCESS_TOKEN ?? '',
         );
 
         if (connError) {
@@ -170,7 +170,7 @@ export const registerSetupCommand = (cli: Cli.Cli) => {
           for (const step of STEPS.filter(
             (s) => s.key === 'BC_STORE_HASH' || s.key === 'BC_ACCESS_TOKEN',
           )) {
-            const current = values[step.key]!;
+            const current = values[step.key] ?? '';
             const displayDefault = step.secret ? maskToken(current) : current;
 
             stdout(`  ${step.label} *`);
@@ -194,8 +194,8 @@ export const registerSetupCommand = (cli: Cli.Cli) => {
       const formFields = await collectFormFields(
         rl,
         existingFormFields,
-        values.BC_STORE_HASH!,
-        values.BC_ACCESS_TOKEN!,
+        values.BC_STORE_HASH ?? '',
+        values.BC_ACCESS_TOKEN ?? '',
         options.verbose,
       );
 

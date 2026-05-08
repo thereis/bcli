@@ -312,7 +312,7 @@ describe('updateWebhook', () => {
       updated_at: 1,
     };
     routes['PUT /stores/x/v3/hooks/5'] = async (req) => {
-      const body = await req.json() as Record<string, unknown>;
+      const body = (await req.json()) as Record<string, unknown>;
       return Response.json({ data: { ...updated, ...body } });
     };
     const bc = makeClient();
