@@ -321,6 +321,89 @@ describe('get/search registrar', () => {
   });
 });
 
+describe('update/webhook registrar', () => {
+  test('wires updateWebhook', async () => {
+    const restore = silence();
+    const sampleWebhook = {
+      id: 3,
+      client_id: 'c',
+      store_hash: 'h',
+      scope: 'store/order/created',
+      destination: 'https://example.com',
+      is_active: false,
+      created_at: 0,
+      updated_at: 1,
+    };
+    (bcStub as Record<string, unknown>).updateWebhook = async () =>
+      sampleWebhook;
+    const { registerUpdateWebhookSubcommand } = await import(
+      './store/update-webhook.ts'
+    );
+    const { cli, getRun } = capture();
+    registerUpdateWebhookSubcommand(cli);
+    const result = (await getRun()?.({
+      args: { id: '3' },
+      options: { is_active: 'false' },
+      ok: (data: unknown, meta: unknown) => ({ data, meta }),
+    })) as { data: { is_active: boolean } };
+    expect(result.data.is_active).toBe(false);
+    restore();
+  });
+});
+
+describe('delete/webhook registrar', () => {
+  test('wires deleteWebhook', async () => {
+    const restore = silence();
+    const deleted: number[] = [];
+    (bcStub as Record<string, unknown>).deleteWebhook = async (id: number) => {
+      deleted.push(id);
+    };
+    const { registerDeleteWebhookSubcommand } = await import(
+      './store/delete-webhook.ts'
+    );
+    const { cli, getRun } = capture();
+    registerDeleteWebhookSubcommand(cli);
+    const result = (await getRun()?.({
+      args: { id: '7' },
+      options: {},
+      ok: (data: unknown, meta: unknown) => ({ data, meta }),
+    })) as { data: { deleted: boolean; id: number } };
+    expect(result.data).toEqual({ deleted: true, id: 7 });
+    expect(deleted).toEqual([7]);
+    restore();
+  });
+});
+
+describe('get/webhooks registrar', () => {
+  test('wires getWebhooks', async () => {
+    const restore = silence();
+    (bcStub as Record<string, unknown>).getWebhooks = async () => [
+      {
+        id: 1,
+        client_id: 'c',
+        store_hash: 'h',
+        scope: 'store/order/created',
+        destination: 'https://example.com',
+        is_active: true,
+        created_at: 0,
+        updated_at: 0,
+      },
+    ];
+    const { registerGetWebhooksSubcommand } = await import(
+      './store/get-webhooks.ts'
+    );
+    const { cli, getRun } = capture();
+    registerGetWebhooksSubcommand(cli);
+    const result = (await getRun()?.({
+      args: {},
+      options: {},
+      ok: (data: unknown, meta: unknown) => ({ data, meta }),
+    })) as { data: unknown[] };
+    expect(result.data).toHaveLength(1);
+    restore();
+  });
+});
+
 describe('update/form-field registrar', () => {
   test('wires updateCustomerFormField', async () => {
     const restore = silence();

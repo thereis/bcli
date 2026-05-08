@@ -76,6 +76,20 @@ export const progressStateSchema = z.object({
   processedIdIndex: z.number(),
 });
 
+export const webhookSchema = z
+  .object({
+    id: z.number(),
+    client_id: z.string(),
+    store_hash: z.string(),
+    scope: z.string(),
+    destination: z.string(),
+    is_active: z.boolean(),
+    created_at: z.number(),
+    updated_at: z.number(),
+  })
+  .loose();
+
+export type Webhook = z.infer<typeof webhookSchema>;
 export type FormFieldValue = z.infer<typeof formFieldValueSchema>;
 export type Address = z.infer<typeof addressSchema>;
 export type FormField = z.infer<typeof formFieldSchema>;

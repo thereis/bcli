@@ -299,6 +299,76 @@ describe('getCart', () => {
   });
 });
 
+describe('updateWebhook', () => {
+  test('PUTs patch to /hooks/:id and returns updated webhook', async () => {
+    const updated = {
+      id: 5,
+      client_id: 'c',
+      store_hash: 'h',
+      scope: 'store/order/created',
+      destination: 'https://example.com',
+      is_active: false,
+      created_at: 0,
+      updated_at: 1,
+    };
+    routes['PUT /stores/x/v3/hooks/5'] = async (req) => {
+      const body = await req.json() as Record<string, unknown>;
+      return Response.json({ data: { ...updated, ...body } });
+    };
+    const bc = makeClient();
+    const result = await bc.updateWebhook(5, { is_active: false });
+    expect(result.is_active).toBe(false);
+  });
+});
+
+describe('deleteWebhook', () => {
+  test('sends DELETE to /hooks/:id', async () => {
+    let deletedPath = '';
+    routes['DELETE /stores/x/v3/hooks/99'] = (_req, url) => {
+      deletedPath = url.pathname;
+      return new Response(null, { status: 204 });
+    };
+    const bc = makeClient();
+    await bc.deleteWebhook(99);
+    expect(deletedPath).toBe('/stores/x/v3/hooks/99');
+  });
+});
+
+describe('getWebhooks', () => {
+  test('returns array of webhooks', async () => {
+    routes['/stores/x/v3/hooks'] = () =>
+      Response.json({
+        data: [
+          {
+            id: 1,
+            client_id: 'abc',
+            store_hash: 'xyz',
+            scope: 'store/order/created',
+            destination: 'https://example.com/hook',
+            is_active: true,
+            created_at: 1700000000,
+            updated_at: 1700000001,
+          },
+        ],
+        meta: { pagination: pagination({ total: 1, count: 1 }) },
+      });
+    const bc = makeClient();
+    const webhooks = await bc.getWebhooks();
+    expect(webhooks).toHaveLength(1);
+    expect(webhooks[0]?.scope).toBe('store/order/created');
+  });
+
+  test('returns empty array when no webhooks', async () => {
+    routes['/stores/x/v3/hooks'] = () =>
+      Response.json({
+        data: [],
+        meta: { pagination: pagination({ total: 0, count: 0 }) },
+      });
+    const bc = makeClient();
+    expect(await bc.getWebhooks()).toEqual([]);
+  });
+});
+
 describe('updateCustomerFormField', () => {
   test('PUTs form-field-values', async () => {
     routes['PUT /stores/x/v3/customers/form-field-values'] = async (req) => {

@@ -12,6 +12,8 @@ import {
   formFieldValueSchema,
   type StoreInfo,
   storeInfoSchema,
+  type Webhook,
+  webhookSchema,
 } from './schemas.ts';
 
 export type SearchFilters = {
@@ -328,6 +330,30 @@ export const createBcClient = () => {
     });
   };
 
+  const updateWebhook = async (
+    id: number,
+    patch: Partial<Pick<Webhook, 'is_active'>>,
+  ): Promise<Webhook> => {
+    const result = await http.putV3Raw<{ data: Webhook }>({
+      path: `/hooks/${id}`,
+      body: patch,
+    });
+    return result.data;
+  };
+
+  const deleteWebhook = async (id: number): Promise<void> => {
+    await http.deleteV3Raw({ path: `/hooks/${id}` });
+  };
+
+  const getWebhooks = async (): Promise<Webhook[]> => {
+    const json = await http.getV3({
+      path: '/hooks',
+      params: {},
+      schema: webhookSchema,
+    });
+    return json.data;
+  };
+
   const cleanProgress = (path: string) => removeProgress(path);
 
   return {
@@ -344,6 +370,9 @@ export const createBcClient = () => {
     getCart,
     getCartByOrderId,
     updateCustomerFormField,
+    getWebhooks,
+    updateWebhook,
+    deleteWebhook,
     cleanProgress,
   };
 };
