@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/thereis/bcli/compare/bcli-v1.3.0...bcli-v1.4.0) (2026-05-08)
+
+
+### Features
+
+* add webhook CRUD commands (get, update, delete) ([#12](https://github.com/thereis/bcli/issues/12)) ([1086258](https://github.com/thereis/bcli/commit/10862580393d880dcdcf43cf81ddb891c7cb406f))
+
 ## [1.3.0](https://github.com/thereis/bcli/compare/bcli-v1.2.3...bcli-v1.3.0) (2026-04-28)
 
 
