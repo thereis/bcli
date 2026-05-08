@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/thereis/bcli/compare/bcli-v1.4.0...bcli-v1.4.1) (2026-05-08)
+
+
+### Bug Fixes
+
+* resolve Biome lint errors in setup and form-fields ([#14](https://github.com/thereis/bcli/issues/14)) ([3a466b4](https://github.com/thereis/bcli/commit/3a466b48a01e83bfd9187487315d6f77862a4c8a))
+
 ## [1.4.0](https://github.com/thereis/bcli/compare/bcli-v1.3.0...bcli-v1.4.0) (2026-05-08)
 
 
