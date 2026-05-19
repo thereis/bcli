@@ -567,6 +567,7 @@ describe('update/customers registrar', () => {
         field: 'Marketing opt-in',
         value: 'Yes',
         dryRun: false,
+        resume: false,
       },
       ok: (data: unknown, meta: unknown) => ({ data, meta }),
     })) as { data: { updated: number } };

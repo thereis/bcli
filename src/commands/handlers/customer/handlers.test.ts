@@ -20,6 +20,7 @@ import {
 import {
   registerUpdateCustomersSubcommand,
   updateCustomersHandler,
+  updateCustomersProgressFilePath,
 } from './update-customers.ts';
 import {
   registerUpdateFormFieldSubcommand,
@@ -370,6 +371,7 @@ describe('updateCustomersHandler', () => {
     field: 'Marketing opt-in',
     value: 'Yes',
     dryRun: false,
+    resume: false,
   };
 
   test('updates existing customers found by email', async () => {
@@ -552,23 +554,80 @@ describe('updateCustomersHandler', () => {
     ).rejects.toThrow(HandlerExitError);
   });
 
-  test('counts failures', async () => {
-    const result = await updateCustomersHandler(
-      { csvPath: 'test.csv' },
-      baseOptions,
-      {
-        readCsvRows: async () => [{ Email: 'fail@x.y' }],
-        lookupCustomersByEmails: async () => [
-          { ...customer, id: 1, email: 'fail@x.y' },
-        ],
+  test('stops on update failure so resume can retry the failed batch', async () => {
+    let savedProgress = -1;
+    let caught: HandlerExitError | null = null;
+    try {
+      await updateCustomersHandler({ csvPath: 'test.csv' }, baseOptions, {
+        readCsvRows: async () => [{ Email: 'done@x.y' }, { Email: 'fail@x.y' }],
+        lookupCustomersByEmails: async (emails) =>
+          emails.map((email, index) => ({
+            ...customer,
+            id: index + 1,
+            email,
+          })),
         updateCustomersFormField: async () => {
           throw new Error('API fail');
+        },
+        saveProgress: (_path, state) => {
+          savedProgress = state.processedRows;
+        },
+      });
+    } catch (e) {
+      caught = e as HandlerExitError;
+    }
+
+    expect(caught?.message).toContain('Re-run with --resume');
+    expect(savedProgress).toBe(-1);
+  });
+
+  test('resume skips rows before the saved checkpoint', async () => {
+    const lookedUp: string[][] = [];
+    const saved: number[] = [];
+    const result = await updateCustomersHandler(
+      { csvPath: 'test.csv' },
+      { ...baseOptions, resume: true },
+      {
+        readCsvRows: async () => [
+          { Email: 'old@x.y' },
+          { Email: 'next@x.y' },
+          { Email: 'last@x.y' },
+        ],
+        lookupCustomersByEmails: async (emails) => {
+          lookedUp.push(emails);
+          return emails.map((email, index) => ({
+            ...customer,
+            id: index + 10,
+            email,
+          }));
+        },
+        updateCustomersFormField: async () => ({}),
+        loadProgress: () => ({
+          processedRows: 1,
+        }),
+        saveProgress: (_path, state) => {
+          saved.push(state.processedRows);
         },
       },
     );
 
-    expect(result.failed).toBe(1);
-    expect(result.updated).toBe(0);
+    expect(result.updated).toBe(2);
+    expect(lookedUp).toEqual([['next@x.y', 'last@x.y']]);
+    expect(saved).toEqual([3]);
+  });
+
+  test('progress file path changes when update options change', () => {
+    const fixed = updateCustomersProgressFilePath(
+      { csvPath: 'test.csv' },
+      baseOptions,
+    );
+    const changedValue = updateCustomersProgressFilePath(
+      { csvPath: 'test.csv' },
+      { ...baseOptions, value: 'No' },
+    );
+
+    expect(fixed).toStartWith('.update-customers-test-csv-');
+    expect(changedValue).not.toBe(fixed);
   });
 });
 

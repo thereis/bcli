@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { basename } from 'node:path';
 import { type Cli, z } from 'incur';
 import { createBcClient } from '../../../lib/bigcommerce/bc-client.ts';
 import type { Customer } from '../../../lib/bigcommerce/schemas.ts';
@@ -15,6 +18,7 @@ export type UpdateCustomersOptions = {
   value?: string;
   valueColumn?: string;
   dryRun: boolean;
+  resume: boolean;
 };
 
 export type UpdateCustomersDeps = {
@@ -23,9 +27,83 @@ export type UpdateCustomersDeps = {
   updateCustomersFormField: (
     updates: { customerId: number; fieldName: string; value: string }[],
   ) => Promise<unknown>;
+  loadProgress?: (path: string) => UpdateCustomersProgressState | null;
+  saveProgress?: (path: string, state: UpdateCustomersProgressState) => void;
+  cleanProgress?: (path: string) => void;
 };
 
 const BATCH_SIZE = 10;
+
+export type UpdateCustomersProgressState = {
+  processedRows: number;
+};
+
+type UpdateCustomersSummary = {
+  total: number;
+  updated: number;
+  skipped: number;
+  invalid: number;
+  failed: number;
+};
+
+const slugify = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+
+export const updateCustomersProgressFilePath = (
+  args: UpdateCustomersArgs,
+  options: UpdateCustomersOptions,
+) => {
+  const key = [
+    args.csvPath,
+    options.emailColumn,
+    options.field,
+    options.value ?? '',
+    options.valueColumn ?? '',
+    String(options.dryRun),
+  ].join('\0');
+  const digest = createHash('sha256').update(key).digest('hex').slice(0, 12);
+  const label = slugify(basename(args.csvPath)) || 'customers';
+  return `.update-customers-${label}-${digest}.json`;
+};
+
+const loadUpdateCustomersProgress = (
+  path: string,
+): UpdateCustomersProgressState | null => {
+  if (!existsSync(path)) return null;
+  return JSON.parse(
+    readFileSync(path, 'utf-8'),
+  ) as UpdateCustomersProgressState;
+};
+
+const saveUpdateCustomersProgress = (
+  path: string,
+  state: UpdateCustomersProgressState,
+) => {
+  writeFileSync(path, JSON.stringify(state));
+};
+
+const cleanUpdateCustomersProgress = (path: string) => {
+  if (existsSync(path)) unlinkSync(path);
+};
+
+const logSummary = (
+  summary: UpdateCustomersSummary,
+  options: Pick<UpdateCustomersOptions, 'dryRun'>,
+) => {
+  logger.info('\nUpdate Summary:');
+  logger.info(`  Total rows:          ${summary.total}`);
+  logger.info(
+    `  ${options.dryRun ? 'Would update' : 'Updated'}:          ${summary.updated}`,
+  );
+  logger.info(`  Skipped (not found): ${summary.skipped}`);
+  logger.info(`  Invalid (no email):  ${summary.invalid}`);
+  if (summary.failed > 0) {
+    logger.info(`  Failed:              ${summary.failed}`);
+  }
+};
 
 export const updateCustomersHandler = async (
   args: UpdateCustomersArgs,
@@ -39,13 +117,37 @@ export const updateCustomersHandler = async (
     exitWithError('Provide only one of --value or --value-column.');
   }
 
+  const progressFile = updateCustomersProgressFilePath(args, options);
+  const loadProgress = deps.loadProgress ?? (() => null);
+  const saveProgress = deps.saveProgress ?? (() => {});
+  const cleanProgress = deps.cleanProgress ?? (() => {});
+
+  if (!options.resume) {
+    cleanProgress(progressFile);
+  }
+
+  const previousProgress = options.resume ? loadProgress(progressFile) : null;
+  const startAfterRow = previousProgress?.processedRows ?? 0;
+  let processedRowCheckpoint = startAfterRow;
+  if (startAfterRow > 0) {
+    logger.info(
+      `Resuming update from row ${startAfterRow + 1} (${startAfterRow} rows already processed)`,
+    );
+  }
+
+  const saveCheckpoint = (processedRows: number) => {
+    processedRowCheckpoint = processedRows;
+    saveProgress(progressFile, { processedRows });
+  };
+
   const rows = await deps.readCsvRows(args.csvPath);
   if (rows.length === 0) {
     logger.info('CSV file is empty or not found.');
+    cleanProgress(progressFile);
     return { total: 0, updated: 0, skipped: 0, invalid: 0, failed: 0 };
   }
 
-  let total = 0;
+  const total = rows.length;
   let updated = 0;
   let skipped = 0;
   let invalid = 0;
@@ -59,15 +161,18 @@ export const updateCustomersHandler = async (
 
   const workItems: WorkItem[] = [];
 
-  for (const row of rows) {
-    total++;
+  for (const [index, row] of rows.entries()) {
+    const rowNumber = index + 1;
+    if (rowNumber <= startAfterRow) continue;
+
     const email = row[options.emailColumn]?.trim();
 
     if (!email) {
       invalid++;
       logger.warn(
-        `Row ${total}: Missing email in column "${options.emailColumn}"`,
+        `Row ${rowNumber}: Missing email in column "${options.emailColumn}"`,
       );
+      saveCheckpoint(rowNumber);
       continue;
     }
 
@@ -78,16 +183,18 @@ export const updateCustomersHandler = async (
     if (!value) {
       invalid++;
       logger.warn(
-        `Row ${total}: Missing value${options.valueColumn ? ` in column "${options.valueColumn}"` : ''}`,
+        `Row ${rowNumber}: Missing value${options.valueColumn ? ` in column "${options.valueColumn}"` : ''}`,
       );
+      saveCheckpoint(rowNumber);
       continue;
     }
 
-    workItems.push({ rowNumber: total, email, value });
+    workItems.push({ rowNumber, email, value });
   }
 
   for (let i = 0; i < workItems.length; i += BATCH_SIZE) {
     const batch = workItems.slice(i, i + BATCH_SIZE);
+    const lastBatchRow = batch.at(-1)?.rowNumber ?? startAfterRow;
     const emails = batch.map((item) => item.email);
     const customers = await deps.lookupCustomersByEmails(emails);
     const customersByEmail = new Map(
@@ -152,22 +259,19 @@ export const updateCustomersHandler = async (
             `Row ${update.rowNumber}: Failed to update "${update.email}" (ID: ${update.customerId}): ${error instanceof Error ? error.message : String(error)}`,
           );
         }
+        logSummary({ total, updated, skipped, invalid, failed }, options);
+        exitWithError(
+          `Failed to update batch ending at row ${lastBatchRow}. Re-run with --resume to retry from row ${processedRowCheckpoint + 1}.`,
+        );
       }
     }
+
+    saveCheckpoint(lastBatchRow);
   }
 
   const summary = { total, updated, skipped, invalid, failed };
-  logger.info('\nUpdate Summary:');
-  logger.info(`  Total rows:          ${total}`);
-  logger.info(
-    `  ${options.dryRun ? 'Would update' : 'Updated'}:          ${updated}`,
-  );
-  logger.info(`  Skipped (not found): ${skipped}`);
-  logger.info(`  Invalid (no email):  ${invalid}`);
-  if (failed > 0) {
-    logger.info(`  Failed:              ${failed}`);
-  }
-
+  logSummary(summary, options);
+  cleanProgress(progressFile);
   return summary;
 };
 
@@ -196,8 +300,12 @@ export const registerUpdateCustomersSubcommand = (parent: Cli.Cli) => {
         .boolean()
         .default(false)
         .describe('Show what would happen without making changes'),
+      resume: z
+        .boolean()
+        .default(false)
+        .describe('Resume from the last saved row checkpoint'),
     }),
-    alias: { dryRun: 'd' },
+    alias: { dryRun: 'd', resume: 'r' },
     async run(c) {
       const bc = createBcClient();
       const result = await runHandler(() =>
@@ -207,6 +315,9 @@ export const registerUpdateCustomersSubcommand = (parent: Cli.Cli) => {
             bc.lookupCustomersByEmails(emails),
           updateCustomersFormField: (updates) =>
             bc.updateCustomersFormField(updates),
+          loadProgress: loadUpdateCustomersProgress,
+          saveProgress: saveUpdateCustomersProgress,
+          cleanProgress: cleanUpdateCustomersProgress,
         }),
       );
       return c.ok(result);
