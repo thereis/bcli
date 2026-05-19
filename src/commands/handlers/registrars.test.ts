@@ -1,4 +1,7 @@
-import { describe, expect, mock, spyOn, test } from 'bun:test';
+import { afterAll, describe, expect, mock, spyOn, test } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Cli } from 'incur';
 import { logger } from '../../lib/shared/logger.ts';
 
@@ -42,6 +45,10 @@ mock.module('node:readline', () => ({
     close: () => {},
   }),
 }));
+
+afterAll(() => {
+  mock.restore();
+});
 
 const capture = () => {
   let run: ((ctx: Record<string, unknown>) => unknown) | undefined;
@@ -521,6 +528,51 @@ describe('clean/progress registrar', () => {
       ok: (data: unknown, meta: unknown) => ({ data, meta }),
     })) as { data: { cleaned: boolean; key: string } };
     expect(result.data).toMatchObject({ cleaned: true, key: 'x' });
+    restore();
+  });
+});
+
+describe('update/customers registrar', () => {
+  test('wires lookupCustomersByEmails and updateCustomersFormField', async () => {
+    const restore = silence();
+    (bcStub as Record<string, unknown>).lookupCustomersByEmails = async () => [
+      {
+        id: 1,
+        email: 'a@b.c',
+        first_name: 'F',
+        last_name: 'L',
+        phone: 'p',
+        addresses: [],
+        form_fields: [],
+      },
+    ];
+    (bcStub as Record<string, unknown>).updateCustomersFormField =
+      async () => ({
+        data: {},
+      });
+    const dir = mkdtempSync(join(tmpdir(), 'reg-update-customers-'));
+    const csvPath = join(dir, 'customers.csv');
+    writeFileSync(csvPath, 'Email\na@b.c\n');
+
+    const { registerUpdateCustomersSubcommand } = await import(
+      './customer/update-customers.ts'
+    );
+    const { cli, getRun } = capture();
+    registerUpdateCustomersSubcommand(cli);
+
+    const result = (await getRun()?.({
+      args: { csvPath },
+      options: {
+        emailColumn: 'Email',
+        field: 'Marketing opt-in',
+        value: 'Yes',
+        dryRun: false,
+      },
+      ok: (data: unknown, meta: unknown) => ({ data, meta }),
+    })) as { data: { updated: number } };
+
+    expect(result.data.updated).toBe(1);
+    rmSync(dir, { recursive: true, force: true });
     restore();
   });
 });

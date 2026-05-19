@@ -108,6 +108,22 @@ describe('schemas', () => {
       expect(result.meta.cursor_pagination?.end_cursor).toBe('abc');
     });
 
+    test('parses response with cursor pagination without end cursor', () => {
+      const schema = paginatedResponseSchema(formFieldValueSchema);
+      const result = schema.parse({
+        data: [],
+        meta: {
+          cursor_pagination: {
+            count: 0,
+            per_page: 250,
+            links: {},
+          },
+        },
+      });
+
+      expect(result.meta.cursor_pagination?.end_cursor).toBeUndefined();
+    });
+
     test('parses response with empty meta', () => {
       const schema = paginatedResponseSchema(formFieldValueSchema);
       const result = schema.parse({ data: [], meta: {} });

@@ -18,6 +18,10 @@ import {
   registerGetSearchSubcommand,
 } from './get-search.ts';
 import {
+  registerUpdateCustomersSubcommand,
+  updateCustomersHandler,
+} from './update-customers.ts';
+import {
   registerUpdateFormFieldSubcommand,
   updateFormFieldHandler,
 } from './update-form-field.ts';
@@ -360,6 +364,214 @@ describe('getSearchHandler', () => {
   });
 });
 
+describe('updateCustomersHandler', () => {
+  const baseOptions = {
+    emailColumn: 'Email',
+    field: 'Marketing opt-in',
+    value: 'Yes',
+    dryRun: false,
+  };
+
+  test('updates existing customers found by email', async () => {
+    const updateCalls: {
+      customerId: number;
+      fieldName: string;
+      value: string;
+    }[][] = [];
+    const result = await updateCustomersHandler(
+      { csvPath: 'test.csv' },
+      baseOptions,
+      {
+        readCsvRows: async () => [{ Email: 'a@b.c' }, { Email: 'd@e.f' }],
+        lookupCustomersByEmails: async (emails) =>
+          emails.map((email) => ({
+            ...customer,
+            email,
+            id: email === 'a@b.c' ? 1 : 2,
+          })),
+        updateCustomersFormField: async (updates) => {
+          updateCalls.push(updates);
+          return {};
+        },
+      },
+    );
+
+    expect(result.updated).toBe(2);
+    expect(updateCalls).toEqual([
+      [
+        { customerId: 1, fieldName: 'Marketing opt-in', value: 'Yes' },
+        { customerId: 2, fieldName: 'Marketing opt-in', value: 'Yes' },
+      ],
+    ]);
+  });
+
+  test('skips missing customers', async () => {
+    const updateCalls: {
+      customerId: number;
+      fieldName: string;
+      value: string;
+    }[][] = [];
+    const result = await updateCustomersHandler(
+      { csvPath: 'test.csv' },
+      baseOptions,
+      {
+        readCsvRows: async () => [
+          { Email: 'found@x.y' },
+          { Email: 'missing@x.y' },
+        ],
+        lookupCustomersByEmails: async () => [
+          { ...customer, id: 1, email: 'found@x.y' },
+        ],
+        updateCustomersFormField: async (updates) => {
+          updateCalls.push(updates);
+          return {};
+        },
+      },
+    );
+
+    expect(result.updated).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(updateCalls).toEqual([
+      [{ customerId: 1, fieldName: 'Marketing opt-in', value: 'Yes' }],
+    ]);
+  });
+
+  test('dry run performs no updates', async () => {
+    const updateCalls: string[] = [];
+    const result = await updateCustomersHandler(
+      { csvPath: 'test.csv' },
+      { ...baseOptions, dryRun: true },
+      {
+        readCsvRows: async () => [{ Email: 'a@b.c' }],
+        lookupCustomersByEmails: async () => [{ ...customer, id: 1 }],
+        updateCustomersFormField: async () => {
+          updateCalls.push('boom');
+          return {};
+        },
+      },
+    );
+
+    expect(result.updated).toBe(1);
+    expect(updateCalls).toEqual([]);
+  });
+
+  test('uses per-row values from valueColumn', async () => {
+    const updateCalls: {
+      customerId: number;
+      fieldName: string;
+      value: string;
+    }[][] = [];
+    const result = await updateCustomersHandler(
+      { csvPath: 'test.csv' },
+      { ...baseOptions, value: undefined, valueColumn: 'Opt In' },
+      {
+        readCsvRows: async () => [
+          { Email: 'yes@x.y', 'Opt In': 'Yes' },
+          { Email: 'no@x.y', 'Opt In': 'No' },
+        ],
+        lookupCustomersByEmails: async (emails) =>
+          emails.map((email) => ({
+            ...customer,
+            email,
+            id: email === 'yes@x.y' ? 1 : 2,
+          })),
+        updateCustomersFormField: async (updates) => {
+          updateCalls.push(updates);
+          return {};
+        },
+      },
+    );
+
+    expect(result.updated).toBe(2);
+    expect(updateCalls).toEqual([
+      [
+        { customerId: 1, fieldName: 'Marketing opt-in', value: 'Yes' },
+        { customerId: 2, fieldName: 'Marketing opt-in', value: 'No' },
+      ],
+    ]);
+  });
+
+  test('skips rows with missing email column', async () => {
+    const result = await updateCustomersHandler(
+      { csvPath: 'test.csv' },
+      baseOptions,
+      {
+        readCsvRows: async () => [{ Email: '' }, { Email: 'a@b.c' }],
+        lookupCustomersByEmails: async () => [{ ...customer, id: 1 }],
+        updateCustomersFormField: async () => ({}),
+      },
+    );
+
+    expect(result.total).toBe(2);
+    expect(result.invalid).toBe(1);
+    expect(result.updated).toBe(1);
+  });
+
+  test('skips rows with missing value column', async () => {
+    const result = await updateCustomersHandler(
+      { csvPath: 'test.csv' },
+      { ...baseOptions, value: undefined, valueColumn: 'Opt In' },
+      {
+        readCsvRows: async () => [
+          { Email: 'missing@x.y', 'Opt In': '' },
+          { Email: 'a@b.c', 'Opt In': 'Yes' },
+        ],
+        lookupCustomersByEmails: async () => [{ ...customer, id: 1 }],
+        updateCustomersFormField: async () => ({}),
+      },
+    );
+
+    expect(result.total).toBe(2);
+    expect(result.invalid).toBe(1);
+    expect(result.updated).toBe(1);
+  });
+
+  test('requires exactly one value source', async () => {
+    await expect(
+      updateCustomersHandler(
+        { csvPath: 'test.csv' },
+        { ...baseOptions, value: undefined },
+        {
+          readCsvRows: async () => [],
+          lookupCustomersByEmails: async () => [],
+          updateCustomersFormField: async () => ({}),
+        },
+      ),
+    ).rejects.toThrow(HandlerExitError);
+
+    await expect(
+      updateCustomersHandler(
+        { csvPath: 'test.csv' },
+        { ...baseOptions, valueColumn: 'Opt In' },
+        {
+          readCsvRows: async () => [],
+          lookupCustomersByEmails: async () => [],
+          updateCustomersFormField: async () => ({}),
+        },
+      ),
+    ).rejects.toThrow(HandlerExitError);
+  });
+
+  test('counts failures', async () => {
+    const result = await updateCustomersHandler(
+      { csvPath: 'test.csv' },
+      baseOptions,
+      {
+        readCsvRows: async () => [{ Email: 'fail@x.y' }],
+        lookupCustomersByEmails: async () => [
+          { ...customer, id: 1, email: 'fail@x.y' },
+        ],
+        updateCustomersFormField: async () => {
+          throw new Error('API fail');
+        },
+      },
+    );
+
+    expect(result.failed).toBe(1);
+    expect(result.updated).toBe(0);
+  });
+});
+
 describe('validateField', () => {
   const known: FormField[] = [
     { name: 'Trusted', type: 'boolean', options: ['True', 'False'] },
@@ -648,6 +860,13 @@ describe('registrars', () => {
     registerGetCustomerSubcommand(fakeParent);
     registerGetSearchSubcommand(fakeParent);
     registerUpdateFormFieldSubcommand(fakeParent);
-    expect(calls).toEqual(['customers', 'customer', 'search', 'form-field']);
+    registerUpdateCustomersSubcommand(fakeParent);
+    expect(calls).toEqual([
+      'customers',
+      'customer',
+      'search',
+      'form-field',
+      'customers',
+    ]);
   });
 });

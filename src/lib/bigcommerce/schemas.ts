@@ -52,7 +52,7 @@ export const paginationSchema = z.object({
 export const cursorPaginationSchema = z.object({
   count: z.number(),
   per_page: z.number(),
-  end_cursor: z.string(),
+  end_cursor: z.string().optional(),
   links: z.object({
     next: z.string().optional(),
   }),

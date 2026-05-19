@@ -33,6 +33,22 @@ export const readCsvColumnValues = (
   });
 };
 
+export const readCsvRows = (
+  filePath: string,
+): Promise<Record<string, string>[]> => {
+  return new Promise((resolve, reject) => {
+    if (!existsSync(filePath)) return resolve([]);
+    const rows: Record<string, string>[] = [];
+    createReadStream(filePath)
+      .pipe(parse({ columns: true, trim: true, skip_empty_lines: true }))
+      .on('data', (row: Record<string, string>) => {
+        rows.push(row);
+      })
+      .on('end', () => resolve(rows))
+      .on('error', reject);
+  });
+};
+
 export const appendCsvRow = (filePath: string, row: Record<string, string>) => {
   const values = Object.values(row).map((v) => `"${v.replace(/"/g, '""')}"`);
   if (!existsSync(filePath)) {
