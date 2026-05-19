@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { basename } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import { type Cli, z } from 'incur';
 import { createBcClient } from '../../../lib/bigcommerce/bc-client.ts';
 import type { Customer } from '../../../lib/bigcommerce/schemas.ts';
-import { readCsvRows } from '../../../lib/export/csv.ts';
+import { appendCsvRow, readCsvRows } from '../../../lib/export/csv.ts';
 import { exitWithError, runHandler } from '../../../lib/shared/handler-exit.ts';
 import { logger } from '../../../lib/shared/logger.ts';
 
@@ -30,6 +30,8 @@ export type UpdateCustomersDeps = {
   loadProgress?: (path: string) => UpdateCustomersProgressState | null;
   saveProgress?: (path: string, state: UpdateCustomersProgressState) => void;
   cleanProgress?: (path: string) => void;
+  appendCsvRow?: (file: string, row: Record<string, string>) => void;
+  cleanErrorCsv?: (path: string) => void;
 };
 
 const BATCH_SIZE = 10;
@@ -89,6 +91,32 @@ const cleanUpdateCustomersProgress = (path: string) => {
   if (existsSync(path)) unlinkSync(path);
 };
 
+export const updateCustomersErrorCsvPath = (args: UpdateCustomersArgs) => {
+  const ext = extname(args.csvPath);
+  const fileName = basename(args.csvPath, ext) || 'customers';
+  const outputName = `${fileName}-errors.csv`;
+  const dir = dirname(args.csvPath);
+  return dir === '.' ? outputName : join(dir, outputName);
+};
+
+const cleanUpdateCustomersErrorCsv = (path: string) => {
+  if (existsSync(path)) unlinkSync(path);
+};
+
+const getUniqueColumnName = (
+  rows: Record<string, string>[],
+  preferredName: string,
+) => {
+  const existingColumns = new Set(rows.flatMap((row) => Object.keys(row)));
+  let columnName = preferredName;
+  let suffix = 2;
+  while (existingColumns.has(columnName)) {
+    columnName = `${preferredName} ${suffix}`;
+    suffix++;
+  }
+  return columnName;
+};
+
 const logSummary = (
   summary: UpdateCustomersSummary,
   options: Pick<UpdateCustomersOptions, 'dryRun'>,
@@ -121,9 +149,13 @@ export const updateCustomersHandler = async (
   const loadProgress = deps.loadProgress ?? (() => null);
   const saveProgress = deps.saveProgress ?? (() => {});
   const cleanProgress = deps.cleanProgress ?? (() => {});
+  const writeErrorRow = deps.appendCsvRow ?? (() => {});
+  const cleanErrorCsv = deps.cleanErrorCsv ?? (() => {});
+  const errorCsvPath = updateCustomersErrorCsvPath(args);
 
   if (!options.resume) {
     cleanProgress(progressFile);
+    cleanErrorCsv(errorCsvPath);
   }
 
   const previousProgress = options.resume ? loadProgress(progressFile) : null;
@@ -148,15 +180,30 @@ export const updateCustomersHandler = async (
   }
 
   const total = rows.length;
+  const statusColumn = getUniqueColumnName(rows, 'Status');
   let updated = 0;
   let skipped = 0;
   let invalid = 0;
   let failed = 0;
 
+  const appendErrorRow = (
+    row: Record<string, string>,
+    status: 'skipped' | 'invalid' | 'failed',
+  ) => {
+    writeErrorRow(errorCsvPath, { ...row, [statusColumn]: status });
+  };
+
+  const logErrorCsv = () => {
+    if (skipped + invalid + failed > 0) {
+      logger.info(`  Error CSV:           ${errorCsvPath}`);
+    }
+  };
+
   type WorkItem = {
     rowNumber: number;
     email: string;
     value: string;
+    row: Record<string, string>;
   };
 
   const workItems: WorkItem[] = [];
@@ -169,6 +216,7 @@ export const updateCustomersHandler = async (
 
     if (!email) {
       invalid++;
+      appendErrorRow(row, 'invalid');
       logger.warn(
         `Row ${rowNumber}: Missing email in column "${options.emailColumn}"`,
       );
@@ -182,6 +230,7 @@ export const updateCustomersHandler = async (
 
     if (!value) {
       invalid++;
+      appendErrorRow(row, 'invalid');
       logger.warn(
         `Row ${rowNumber}: Missing value${options.valueColumn ? ` in column "${options.valueColumn}"` : ''}`,
       );
@@ -189,7 +238,7 @@ export const updateCustomersHandler = async (
       continue;
     }
 
-    workItems.push({ rowNumber, email, value });
+    workItems.push({ rowNumber, email, value, row });
   }
 
   for (let i = 0; i < workItems.length; i += BATCH_SIZE) {
@@ -207,6 +256,7 @@ export const updateCustomersHandler = async (
       value: string;
       email: string;
       rowNumber: number;
+      row: Record<string, string>;
     }[] = [];
 
     for (const item of batch) {
@@ -214,6 +264,7 @@ export const updateCustomersHandler = async (
 
       if (!customer) {
         skipped++;
+        appendErrorRow(item.row, 'skipped');
         logger.info(
           `Row ${item.rowNumber}: Customer not found for email "${item.email}". Skipping.`,
         );
@@ -234,6 +285,7 @@ export const updateCustomersHandler = async (
         value: item.value,
         email: item.email,
         rowNumber: item.rowNumber,
+        row: item.row,
       });
     }
 
@@ -255,11 +307,13 @@ export const updateCustomersHandler = async (
       } catch (error) {
         failed += updates.length;
         for (const update of updates) {
+          appendErrorRow(update.row, 'failed');
           logger.error(
             `Row ${update.rowNumber}: Failed to update "${update.email}" (ID: ${update.customerId}): ${error instanceof Error ? error.message : String(error)}`,
           );
         }
         logSummary({ total, updated, skipped, invalid, failed }, options);
+        logErrorCsv();
         exitWithError(
           `Failed to update batch ending at row ${lastBatchRow}. Re-run with --resume to retry from row ${processedRowCheckpoint + 1}.`,
         );
@@ -271,6 +325,7 @@ export const updateCustomersHandler = async (
 
   const summary = { total, updated, skipped, invalid, failed };
   logSummary(summary, options);
+  logErrorCsv();
   cleanProgress(progressFile);
   return summary;
 };
@@ -318,6 +373,8 @@ export const registerUpdateCustomersSubcommand = (parent: Cli.Cli) => {
           loadProgress: loadUpdateCustomersProgress,
           saveProgress: saveUpdateCustomersProgress,
           cleanProgress: cleanUpdateCustomersProgress,
+          appendCsvRow,
+          cleanErrorCsv: cleanUpdateCustomersErrorCsv,
         }),
       );
       return c.ok(result);

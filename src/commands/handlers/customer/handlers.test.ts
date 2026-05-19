@@ -19,6 +19,7 @@ import {
 } from './get-search.ts';
 import {
   registerUpdateCustomersSubcommand,
+  updateCustomersErrorCsvPath,
   updateCustomersHandler,
   updateCustomersProgressFilePath,
 } from './update-customers.ts';
@@ -413,13 +414,14 @@ describe('updateCustomersHandler', () => {
       fieldName: string;
       value: string;
     }[][] = [];
+    const errorRows: { file: string; row: Record<string, string> }[] = [];
     const result = await updateCustomersHandler(
       { csvPath: 'test.csv' },
       baseOptions,
       {
         readCsvRows: async () => [
-          { Email: 'found@x.y' },
-          { Email: 'missing@x.y' },
+          { Email: 'found@x.y', Name: 'Found' },
+          { Email: 'missing@x.y', Name: 'Missing' },
         ],
         lookupCustomersByEmails: async () => [
           { ...customer, id: 1, email: 'found@x.y' },
@@ -428,6 +430,7 @@ describe('updateCustomersHandler', () => {
           updateCalls.push(updates);
           return {};
         },
+        appendCsvRow: (file, row) => errorRows.push({ file, row }),
       },
     );
 
@@ -435,6 +438,12 @@ describe('updateCustomersHandler', () => {
     expect(result.skipped).toBe(1);
     expect(updateCalls).toEqual([
       [{ customerId: 1, fieldName: 'Marketing opt-in', value: 'Yes' }],
+    ]);
+    expect(errorRows).toEqual([
+      {
+        file: 'test-errors.csv',
+        row: { Email: 'missing@x.y', Name: 'Missing', Status: 'skipped' },
+      },
     ]);
   });
 
@@ -494,38 +503,56 @@ describe('updateCustomersHandler', () => {
   });
 
   test('skips rows with missing email column', async () => {
+    const errorRows: Record<string, string>[] = [];
     const result = await updateCustomersHandler(
       { csvPath: 'test.csv' },
       baseOptions,
       {
-        readCsvRows: async () => [{ Email: '' }, { Email: 'a@b.c' }],
+        readCsvRows: async () => [
+          { Email: '', Name: 'No Email' },
+          { Email: 'a@b.c', Name: 'Valid' },
+        ],
         lookupCustomersByEmails: async () => [{ ...customer, id: 1 }],
         updateCustomersFormField: async () => ({}),
+        appendCsvRow: (_file, row) => errorRows.push(row),
       },
     );
 
     expect(result.total).toBe(2);
     expect(result.invalid).toBe(1);
     expect(result.updated).toBe(1);
+    expect(errorRows).toEqual([
+      { Email: '', Name: 'No Email', Status: 'invalid' },
+    ]);
   });
 
   test('skips rows with missing value column', async () => {
+    const errorRows: Record<string, string>[] = [];
     const result = await updateCustomersHandler(
       { csvPath: 'test.csv' },
       { ...baseOptions, value: undefined, valueColumn: 'Opt In' },
       {
         readCsvRows: async () => [
-          { Email: 'missing@x.y', 'Opt In': '' },
-          { Email: 'a@b.c', 'Opt In': 'Yes' },
+          { Email: 'missing@x.y', 'Opt In': '', Name: 'Missing Value' },
+          { Email: 'a@b.c', 'Opt In': 'Yes', Name: 'Valid' },
         ],
         lookupCustomersByEmails: async () => [{ ...customer, id: 1 }],
         updateCustomersFormField: async () => ({}),
+        appendCsvRow: (_file, row) => errorRows.push(row),
       },
     );
 
     expect(result.total).toBe(2);
     expect(result.invalid).toBe(1);
     expect(result.updated).toBe(1);
+    expect(errorRows).toEqual([
+      {
+        Email: 'missing@x.y',
+        'Opt In': '',
+        Name: 'Missing Value',
+        Status: 'invalid',
+      },
+    ]);
   });
 
   test('requires exactly one value source', async () => {
@@ -556,10 +583,14 @@ describe('updateCustomersHandler', () => {
 
   test('stops on update failure so resume can retry the failed batch', async () => {
     let savedProgress = -1;
+    const errorRows: Record<string, string>[] = [];
     let caught: HandlerExitError | null = null;
     try {
       await updateCustomersHandler({ csvPath: 'test.csv' }, baseOptions, {
-        readCsvRows: async () => [{ Email: 'done@x.y' }, { Email: 'fail@x.y' }],
+        readCsvRows: async () => [
+          { Email: 'done@x.y', Name: 'Done' },
+          { Email: 'fail@x.y', Name: 'Fail' },
+        ],
         lookupCustomersByEmails: async (emails) =>
           emails.map((email, index) => ({
             ...customer,
@@ -572,6 +603,7 @@ describe('updateCustomersHandler', () => {
         saveProgress: (_path, state) => {
           savedProgress = state.processedRows;
         },
+        appendCsvRow: (_file, row) => errorRows.push(row),
       });
     } catch (e) {
       caught = e as HandlerExitError;
@@ -579,6 +611,10 @@ describe('updateCustomersHandler', () => {
 
     expect(caught?.message).toContain('Re-run with --resume');
     expect(savedProgress).toBe(-1);
+    expect(errorRows).toEqual([
+      { Email: 'done@x.y', Name: 'Done', Status: 'failed' },
+      { Email: 'fail@x.y', Name: 'Fail', Status: 'failed' },
+    ]);
   });
 
   test('resume skips rows before the saved checkpoint', async () => {
@@ -628,6 +664,41 @@ describe('updateCustomersHandler', () => {
 
     expect(fixed).toStartWith('.update-customers-test-csv-');
     expect(changedValue).not.toBe(fixed);
+  });
+
+  test('error csv path is written next to the source csv', () => {
+    expect(updateCustomersErrorCsvPath({ csvPath: 'customers.csv' })).toBe(
+      'customers-errors.csv',
+    );
+    expect(updateCustomersErrorCsvPath({ csvPath: 'imports/customers.csv' })).toBe(
+      'imports/customers-errors.csv',
+    );
+  });
+
+  test('uses a unique status column when the csv already has Status', async () => {
+    const errorRows: Record<string, string>[] = [];
+    const result = await updateCustomersHandler(
+      { csvPath: 'test.csv' },
+      baseOptions,
+      {
+        readCsvRows: async () => [
+          { Email: '', Status: 'Existing', 'Status 2': 'Also Existing' },
+        ],
+        lookupCustomersByEmails: async () => [],
+        updateCustomersFormField: async () => ({}),
+        appendCsvRow: (_file, row) => errorRows.push(row),
+      },
+    );
+
+    expect(result.invalid).toBe(1);
+    expect(errorRows).toEqual([
+      {
+        Email: '',
+        Status: 'Existing',
+        'Status 2': 'Also Existing',
+        'Status 3': 'invalid',
+      },
+    ]);
   });
 });
 
