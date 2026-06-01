@@ -1,4 +1,5 @@
 import { Cli } from 'incur';
+import { registerUpdateCustomersSubcommand } from './handlers/customer/update-customers.ts';
 import { registerUpdateFormFieldSubcommand } from './handlers/customer/update-form-field.ts';
 import { registerUpdateFormFieldsSubcommand } from './handlers/store/update-form-fields.ts';
 import { registerUpdateWebhookSubcommand } from './handlers/store/update-webhook.ts';
@@ -9,6 +10,7 @@ export const registerUpdateCommand = (cli: Cli.Cli) => {
   });
 
   registerUpdateFormFieldSubcommand(updateCli);
+  registerUpdateCustomersSubcommand(updateCli);
   registerUpdateFormFieldsSubcommand(updateCli);
   registerUpdateWebhookSubcommand(updateCli);
 

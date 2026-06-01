@@ -191,6 +191,26 @@ describe('lookupCustomer', () => {
   });
 });
 
+describe('lookupCustomersByEmails', () => {
+  test('GETs /customers with email:in and returns data', async () => {
+    routes['/stores/x/v3/customers'] = () => {
+      return customerResp([
+        sampleCustomer,
+        { ...sampleCustomer, id: 2, email: 'd@e.f' },
+      ]);
+    };
+    const bc = makeClient();
+    const customers = await bc.lookupCustomersByEmails(['a@b.c', 'd@e.f']);
+
+    expect(customers).toHaveLength(2);
+  });
+
+  test('returns empty array for empty input', async () => {
+    const bc = makeClient();
+    expect(await bc.lookupCustomersByEmails([])).toEqual([]);
+  });
+});
+
 describe('getOrder, getOrderFees, getRecentOrders, getOrdersByEmail', () => {
   test('getOrder combines order + products', async () => {
     routes['/stores/x/v2/orders/100'] = () =>
@@ -380,6 +400,32 @@ describe('updateCustomerFormField', () => {
       data: unknown[];
     };
     expect(res.data).toEqual([{ customer_id: 1, name: 'F', value: 'V' }]);
+  });
+});
+
+describe('updateCustomerFormFields', () => {
+  test('PUTs multiple form-field-values', async () => {
+    let capturedBody: unknown = null;
+    routes['PUT /stores/x/v3/customers/form-field-values'] = async (req) => {
+      capturedBody = await req.json();
+      return Response.json({ data: capturedBody, meta: {} });
+    };
+    const bc = makeClient();
+    const updates = [
+      { customerId: 1, fieldName: 'F1', value: 'V1' },
+      { customerId: 2, fieldName: 'F2', value: 'V2' },
+    ];
+    await bc.updateCustomersFormField(updates);
+    expect(capturedBody).toEqual([
+      { customer_id: 1, name: 'F1', value: 'V1' },
+      { customer_id: 2, name: 'F2', value: 'V2' },
+    ]);
+  });
+
+  test('returns empty response for empty updates', async () => {
+    const bc = makeClient();
+    const res = await bc.updateCustomersFormField([]);
+    expect(res).toEqual({ data: [], meta: {} });
   });
 });
 

@@ -28,7 +28,7 @@
     "format": "biome format ./src --write",
     "lint": "biome check ./src --write",
     "lint:check": "biome check ./src",
-    "test": "bun test --preload ./src/test-setup.ts",
+    "test": "bun test --preload ./src/test-setup.ts --isolate",
     "ts-check": "tsc --noEmit",
     "check": "pnpm run ts-check && pnpm run lint:check && pnpm run test",
     "prepublishOnly": "pnpm run check && pnpm run build"

@@ -8,6 +8,7 @@ exports/*
 !.env.example
 .bc/
 .progress-*.json
+.update-customers-*.json
 dist
 docs
 coverage

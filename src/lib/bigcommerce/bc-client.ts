@@ -101,6 +101,18 @@ export const createBcClient = () => {
     return allCustomers;
   };
 
+  const lookupCustomersByEmails = async (
+    emails: string[],
+  ): Promise<Customer[]> => {
+    if (emails.length === 0) return [];
+    const json = await http.getV3({
+      path: '/customers',
+      params: { 'email:in': emails.join(','), include: 'addresses,formfields' },
+      schema: customerSchema,
+    });
+    return json.data;
+  };
+
   const lookupCustomer = async (email: string): Promise<Customer | null> => {
     const json = await http.getV3({
       path: '/customers',
@@ -330,6 +342,21 @@ export const createBcClient = () => {
     });
   };
 
+  const updateCustomersFormField = async (
+    updates: { customerId: number; fieldName: string; value: string }[],
+  ) => {
+    if (updates.length === 0) return { data: [], meta: {} };
+
+    return http.putV3Raw<{ data: unknown; meta: unknown }>({
+      path: '/customers/form-field-values',
+      body: updates.map(({ customerId, fieldName, value }) => ({
+        customer_id: customerId,
+        name: fieldName,
+        value,
+      })),
+    });
+  };
+
   const updateWebhook = async (
     id: number,
     patch: Partial<Pick<Webhook, 'is_active'>>,
@@ -360,6 +387,7 @@ export const createBcClient = () => {
     http,
     getStoreInfo,
     searchCustomers,
+    lookupCustomersByEmails,
     lookupCustomer,
     getCustomerIdsByFormField,
     getCustomersByIds,
@@ -370,6 +398,7 @@ export const createBcClient = () => {
     getCart,
     getCartByOrderId,
     updateCustomerFormField,
+    updateCustomersFormField,
     getWebhooks,
     updateWebhook,
     deleteWebhook,
