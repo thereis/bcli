@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "columns": [
+    { "header": "customerId", "source": "{uuidv4}" },
+    { "header": "bigcommerceId", "source": "id" },
+    { "header": "email", "source": "email" },
+    { "header": "firstName", "source": "first_name" },
+    { "header": "lastName", "source": "last_name" },
+    { "header": "phone", "source": "phone" },
+    { "header": "countryCode", "source": "addresses[last].country_code" },
+    {
+      "header": "phoneVerified",
+      "source": "form_field:Phone verified"
+    },
+    {
+      "header": "hasValidCustomerData",
+      "source": "form_field:Has valid customer data"
+    },
+    {
+      "header": "fullDueDiligenceComplete",
+      "source": "form_field:Full due diligence is complete"
+    },
+    {
+      "header": "isTrustedCustomer",
+      "source": "form_field:Is trusted customer"
+    },
+    { "header": "createdAt", "source": "date_created" },
+    { "header": "updatedAt", "source": "date_modified" }
+  ]
+}

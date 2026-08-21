@@ -3,6 +3,8 @@ import {
   createReadStream,
   existsSync,
   mkdirSync,
+  renameSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname } from 'node:path';
@@ -59,4 +61,35 @@ export const appendCsvRow = (filePath: string, row: Record<string, string>) => {
     writeFileSync(filePath, `${headerLine}\n`);
   }
   appendFileSync(filePath, `${values.join(',')}\n`);
+};
+
+const encodeCsvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
+
+export const writeCsvFileAtomic = (
+  filePath: string,
+  headers: readonly string[],
+  rows: readonly (readonly string[])[],
+) => {
+  for (const [index, row] of rows.entries()) {
+    if (row.length !== headers.length) {
+      throw new Error(
+        `CSV row ${index + 1} has ${row.length} values, expected ${headers.length}.`,
+      );
+    }
+  }
+
+  mkdirSync(dirname(filePath), { recursive: true });
+  const temporaryPath = `${filePath}.tmp-${process.pid}`;
+  const lines = [
+    headers.map(encodeCsvCell).join(','),
+    ...rows.map((row) => row.map(encodeCsvCell).join(',')),
+  ];
+
+  try {
+    writeFileSync(temporaryPath, `${lines.join('\n')}\n`);
+    renameSync(temporaryPath, filePath);
+  } catch (error) {
+    if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+    throw error;
+  }
 };

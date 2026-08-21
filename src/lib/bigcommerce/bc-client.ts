@@ -8,6 +8,7 @@ import {
 import { BcHttpClient } from './bc-http.ts';
 import {
   type Customer,
+  customerIdSchema,
   customerSchema,
   formFieldValueSchema,
   type StoreInfo,
@@ -36,8 +37,29 @@ export type SearchFilters = {
 const LIMIT = 250;
 const ID_BATCH_LIMIT = 50;
 
-export const createBcClient = () => {
+export type BcClientDeps = {
+  sleep?: (milliseconds: number) => Promise<void>;
+};
+
+export const createBcClient = (deps: BcClientDeps = {}) => {
   const http = new BcHttpClient(env.BC_STORE_HASH, env.BC_ACCESS_TOKEN);
+  const sleep =
+    deps.sleep ??
+    ((milliseconds: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+  let completedExportRequest = false;
+
+  const runExportRequest = async <T>(
+    requestDelayMs: number,
+    request: () => Promise<T>,
+  ): Promise<T> => {
+    if (completedExportRequest && requestDelayMs > 0) {
+      await sleep(requestDelayMs);
+    }
+    const result = await request();
+    completedExportRequest = true;
+    return result;
+  };
 
   const getStoreInfo = async (): Promise<StoreInfo> => {
     return http
@@ -120,6 +142,68 @@ export const createBcClient = () => {
       schema: customerSchema,
     });
     return json.data[0] ?? null;
+  };
+
+  const getAllCustomerIds = async (
+    limit?: number,
+    requestDelayMs = 0,
+  ): Promise<number[]> => {
+    const ids: number[] = [];
+    let page = 1;
+    const pageLimit = limit ? Math.min(LIMIT, limit) : LIMIT;
+
+    while (true) {
+      const json = await runExportRequest(requestDelayMs, () =>
+        http.getV3({
+          path: '/customers',
+          params: {
+            limit: pageLimit,
+            page,
+            sort: limit ? 'date_created:asc' : undefined,
+          },
+          schema: customerIdSchema,
+        }),
+      );
+      ids.push(...json.data.map((customer) => customer.id));
+
+      const totalPages = json.meta.pagination?.total_pages ?? 1;
+      logger.info(
+        limit
+          ? `Customer roster page ${page} | ${Math.min(ids.length, limit)}/${limit} sample IDs`
+          : `Customer roster page ${page}/${totalPages}`,
+      );
+      if (limit && ids.length >= limit) {
+        logger.info(`Customer roster limit reached: ${limit}`);
+        break;
+      }
+      if (page >= totalPages) break;
+      page++;
+    }
+
+    return limit ? ids.slice(0, limit) : ids;
+  };
+
+  const fetchCustomersByIds = async (
+    ids: number[],
+    requestDelayMs = 0,
+  ): Promise<Customer[]> => {
+    const customers: Customer[] = [];
+    for (let index = 0; index < ids.length; index += ID_BATCH_LIMIT) {
+      const batch = ids.slice(index, index + ID_BATCH_LIMIT);
+      const json = await runExportRequest(requestDelayMs, () =>
+        http.getV3({
+          path: '/customers',
+          params: {
+            'id:in': batch.join(','),
+            include: 'addresses,formfields',
+            limit: ID_BATCH_LIMIT,
+          },
+          schema: customerSchema,
+        }),
+      );
+      customers.push(...json.data);
+    }
+    return customers;
   };
 
   const getCustomerIdsByFormField = async (
@@ -389,6 +473,8 @@ export const createBcClient = () => {
     searchCustomers,
     lookupCustomersByEmails,
     lookupCustomer,
+    getAllCustomerIds,
+    fetchCustomersByIds,
     getCustomerIdsByFormField,
     getCustomersByIds,
     getOrder,
