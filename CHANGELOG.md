@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.0](https://github.com/thereis/bcli/compare/bcli-v1.4.1...bcli-v1.5.0) (2026-08-21)
+
+
+### Features
+
+* add resumable batched customer exports ([683db0b](https://github.com/thereis/bcli/commit/683db0b67930864e3683a7e002036bf0934ba086))
+* pace customer export requests ([fd836cb](https://github.com/thereis/bcli/commit/fd836cbd4aff6a18be00adac60b98917f254165a))
+
 ## [1.4.1](https://github.com/thereis/bcli/compare/bcli-v1.4.0...bcli-v1.4.1) (2026-05-08)
 
 
