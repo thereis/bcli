@@ -41,6 +41,85 @@ bcli export customers fdd \
   --value "True" \
   --columns "Email:email,Country:addresses[0].country" \
   --export
+
+# Export every customer in retryable batches using a saved column mapping
+bcli export customers customer-migration \
+  --all \
+  --columns-file mappings/customer-migration.json \
+  --batch-size 1000 \
+  --export
+
+# Export the 100 oldest customers as a sample
+bcli export customers customer-sample \
+  --all \
+  --limit 100 \
+  --columns-file mappings/customer-migration.json \
+  --export
+
+# Resume from the first incomplete batch
+bcli export customers customer-migration --resume --export
+```
+
+The included migration mapping generates `customerId` with `{uuidv4}` and
+keeps the original BigCommerce ID in `bigcommerceId`. Generated UUIDs are saved
+before each CSV batch is published, so retrying an incomplete batch reuses the
+same IDs. `addresses[last]` selects the final saved address returned by the
+customer API. It does not query the billing address from the latest order.
+
+#### Export customers in batches
+
+Start a full export with a new export key:
+
+```sh
+bcli export customers customer-migration-v1 \
+  --all \
+  --batch-size 1000 \
+  --columns-file mappings/customer-migration.json \
+  --export
+```
+
+`--batch-size 1000` writes at most 1,000 customers to each CSV file. The
+default batch size is 1,000.
+
+```text
+exports/customer-migration-v1/
+├── manifest.json
+├── customer-migration-v1-000001.csv
+├── customer-migration-v1-000002.csv
+└── .state/
+```
+
+Use `--limit` to test the mapping before the full export. This command writes
+100 customers across four files:
+
+```sh
+bcli export customers customer-sample-v1 \
+  --all \
+  --limit 100 \
+  --batch-size 25 \
+  --columns-file mappings/customer-migration.json \
+  --export
+```
+
+If an export stops, resume it with the same key:
+
+```sh
+bcli export customers customer-migration-v1 --resume --export
+```
+
+The manifest stores the customer roster, the mapping, and the first incomplete
+batch. Resume skips completed batches and reuses generated UUIDs.
+
+An export key cannot overwrite an existing export. To run the export again
+with new data or a changed mapping, use a new key such as
+`customer-migration-v2`. If you omit `--export`, the command performs a dry run
+and does not create CSV files.
+
+To include BigCommerce timestamps, add these columns to the mapping file:
+
+```json
+{ "header": "createdAt", "source": "date_created" },
+{ "header": "updatedAt", "source": "date_modified" }
 ```
 
 ### 3. Environments
@@ -99,7 +178,7 @@ bcli --mcp          # stdio MCP server
 | `env remove <name>`                 | Remove an environment                                                            |
 | `check connection`                  | Test API connection and show store info                                          |
 | `check version`                     | Compare installed bcli version against latest on npm                             |
-| `export customers <key>`            | Fetch customers matching a form-field value                                      |
+| `export customers <key>`            | Export filtered or all customers to CSV, with retryable batch support            |
 | `get customer <email>`              | Look up a customer by email                                                      |
 | `get order <id>`                    | Get order details by ID                                                          |
 | `get orders --email <email>`        | Query orders by customer email                                                   |
@@ -114,13 +193,13 @@ Run `bcli <command> --help` for full flags on any command.
 
 ## Global Flags
 
-| Flag              | Description                                                          |
-| ----------------- | -------------------------------------------------------------------- |
-| `-v`, `--verbose` | Detailed per-page, per-batch, and per-customer logging               |
-| `--format <fmt>`  | Output format (`toon`, `json`, `yaml`, `md`, `jsonl`)                |
-| `--json`          | Shorthand for `--format json`                                        |
+| Flag              | Description                                                              |
+| ----------------- | ------------------------------------------------------------------------ |
+| `-v`, `--verbose` | Detailed per-page, per-batch, and per-customer logging                   |
+| `--format <fmt>`  | Output format (`toon`, `json`, `yaml`, `md`, `jsonl`)                    |
+| `--json`          | Shorthand for `--format json`                                            |
 | `--config <path>` | Load option defaults from a JSON file (`~/.bcli/config.json` by default) |
-| `--no-config`     | Disable the auto-loaded config file                                  |
+| `--no-config`     | Disable the auto-loaded config file                                      |
 
 ## License
 

@@ -1,9 +1,13 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Customer } from '../../../lib/bigcommerce/schemas.ts';
 import type { FormField } from '../../../lib/config/form-fields.ts';
 import { HandlerExitError } from '../../../lib/shared/handler-exit.ts';
 import {
   type ExportCustomersDeps,
+  exportAllCustomersHandler,
   exportCustomersHandler,
   registerExportCustomersSubcommand,
   validateField,
@@ -670,9 +674,9 @@ describe('updateCustomersHandler', () => {
     expect(updateCustomersErrorCsvPath({ csvPath: 'customers.csv' })).toBe(
       'customers-errors.csv',
     );
-    expect(updateCustomersErrorCsvPath({ csvPath: 'imports/customers.csv' })).toBe(
-      'imports/customers-errors.csv',
-    );
+    expect(
+      updateCustomersErrorCsvPath({ csvPath: 'imports/customers.csv' }),
+    ).toBe('imports/customers-errors.csv');
   });
 
   test('uses a unique status column when the csv already has Status', async () => {
@@ -975,6 +979,73 @@ describe('exportCustomersHandler', () => {
       caught = e as HandlerExitError;
     }
     expect(caught?.message).toContain('not allowed');
+  });
+});
+
+describe('exportAllCustomersHandler', () => {
+  test('writes a complete all-customer run', async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), 'all-customers-handler-'));
+    try {
+      const result = await exportAllCustomersHandler(
+        { key: 'migration' },
+        {
+          all: true,
+          columns: 'customerId:id,email:email',
+          resume: false,
+          export: true,
+          incremental: false,
+          batchSize: 1000,
+        },
+        {
+          loadFormFields: () => [],
+          getAllCustomerIds: async () => [99],
+          fetchCustomersByIds: async () => [customer],
+          rootDir,
+          now: () => '2026-08-21T12:00:00.000Z',
+          randomUUID: () => '00000000-0000-4000-8000-000000000001',
+        },
+      );
+
+      expect(result).toMatchObject({
+        customerCount: 1,
+        completedBatches: 1,
+        written: 1,
+        exported: true,
+      });
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects conflicting selection modes before API calls', async () => {
+    let requested = false;
+    await expect(
+      exportAllCustomersHandler(
+        { key: 'migration' },
+        {
+          all: true,
+          field: 'Trusted',
+          value: 'True',
+          columns: 'customerId:id',
+          resume: false,
+          export: true,
+          incremental: false,
+          batchSize: 1000,
+        },
+        {
+          loadFormFields: () => [],
+          getAllCustomerIds: async () => {
+            requested = true;
+            return [];
+          },
+          fetchCustomersByIds: async () => [],
+          rootDir: 'unused',
+          now: () => 'unused',
+          randomUUID: () => '00000000-0000-4000-8000-000000000001',
+        },
+      ),
+    ).rejects.toThrow(/cannot be combined/);
+    expect(requested).toBe(false);
   });
 });
 

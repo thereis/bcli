@@ -2,7 +2,12 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendCsvRow, obscure, readCsvColumnValues } from './csv.ts';
+import {
+  appendCsvRow,
+  obscure,
+  readCsvColumnValues,
+  writeCsvFileAtomic,
+} from './csv.ts';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'csv-'));
 const paths: string[] = [];
@@ -72,5 +77,24 @@ describe('readCsvColumnValues', () => {
     appendCsvRow(file, { ID: '', Email: 'd@e.f' });
     const ids = await readCsvColumnValues(file, 'ID');
     expect(ids).toEqual(new Set(['1']));
+  });
+});
+
+describe('writeCsvFileAtomic', () => {
+  test('replaces a complete file and preserves header order', () => {
+    const dir = tmp();
+    paths.push(dir);
+    const file = join(dir, 'batches', 'part.csv');
+    writeCsvFileAtomic(file, ['B', 'A'], [['2', '1']]);
+    writeCsvFileAtomic(file, ['B', 'A'], [['4', '3']]);
+    expect(readFileSync(file, 'utf-8')).toBe('"B","A"\n"4","3"\n');
+  });
+
+  test('rejects rows that do not match the header width', () => {
+    const dir = tmp();
+    paths.push(dir);
+    expect(() =>
+      writeCsvFileAtomic(join(dir, 'bad.csv'), ['A'], [['1', '2']]),
+    ).toThrow(/expected 1/);
   });
 });

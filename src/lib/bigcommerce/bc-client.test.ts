@@ -211,6 +211,106 @@ describe('lookupCustomersByEmails', () => {
   });
 });
 
+describe('all-customer export reads', () => {
+  test('getAllCustomerIds paginates without loading related records', async () => {
+    const includes: Array<string | null> = [];
+    routes['/stores/x/v3/customers'] = (_request, url) => {
+      const page = Number(url.searchParams.get('page'));
+      includes.push(url.searchParams.get('include'));
+      return Response.json({
+        data: [{ id: page }],
+        meta: {
+          pagination: pagination({
+            total: 2,
+            count: 1,
+            current_page: page,
+            total_pages: 2,
+          }),
+        },
+      });
+    };
+
+    const bc = makeClient();
+    expect(await bc.getAllCustomerIds()).toEqual([1, 2]);
+    expect(includes).toEqual([null, null]);
+  });
+
+  test('getAllCustomerIds stops after one page for a 100-customer sample', async () => {
+    let requests = 0;
+    routes['/stores/x/v3/customers'] = (_request, url) => {
+      requests++;
+      expect(url.searchParams.get('limit')).toBe('100');
+      expect(url.searchParams.get('page')).toBe('1');
+      expect(url.searchParams.get('sort')).toBe('date_created:asc');
+      return Response.json({
+        data: Array.from({ length: 100 }, (_, index) => ({ id: index + 1 })),
+        meta: {
+          pagination: pagination({
+            total: 451_250,
+            count: 100,
+            per_page: 100,
+            current_page: 1,
+            total_pages: 4_513,
+          }),
+        },
+      });
+    };
+
+    const bc = makeClient();
+    expect(await bc.getAllCustomerIds(100)).toHaveLength(100);
+    expect(requests).toBe(1);
+  });
+
+  test('getAllCustomerIds keeps a stable page size for larger limits', async () => {
+    const requests: Array<{ limit: string | null; page: string | null }> = [];
+    routes['/stores/x/v3/customers'] = (_request, url) => {
+      requests.push({
+        limit: url.searchParams.get('limit'),
+        page: url.searchParams.get('page'),
+      });
+      const page = Number(url.searchParams.get('page'));
+      return Response.json({
+        data: Array.from({ length: 250 }, (_, index) => ({
+          id: (page - 1) * 250 + index + 1,
+        })),
+        meta: {
+          pagination: pagination({
+            total: 1_000,
+            count: 250,
+            current_page: page,
+            total_pages: 4,
+          }),
+        },
+      });
+    };
+
+    const bc = makeClient();
+    expect(await bc.getAllCustomerIds(300)).toHaveLength(300);
+    expect(requests).toEqual([
+      { limit: '250', page: '1' },
+      { limit: '250', page: '2' },
+    ]);
+  });
+
+  test('fetchCustomersByIds splits API requests into groups of 50', async () => {
+    const batches: string[] = [];
+    routes['/stores/x/v3/customers'] = (_request, url) => {
+      const ids = url.searchParams.get('id:in') ?? '';
+      batches.push(ids);
+      return customerResp(
+        ids.split(',').map((id) => ({ ...sampleCustomer, id: Number(id) })),
+      );
+    };
+
+    const bc = makeClient();
+    const ids = Array.from({ length: 60 }, (_, index) => index + 1);
+    expect(await bc.fetchCustomersByIds(ids)).toHaveLength(60);
+    expect(batches).toHaveLength(2);
+    expect(batches[0]?.split(',')).toHaveLength(50);
+    expect(batches[1]?.split(',')).toHaveLength(10);
+  });
+});
+
 describe('getOrder, getOrderFees, getRecentOrders, getOrdersByEmail', () => {
   test('getOrder combines order + products', async () => {
     routes['/stores/x/v2/orders/100'] = () =>

@@ -32,6 +32,10 @@ export const customerSchema = z
   })
   .loose();
 
+export const customerIdSchema = z
+  .object({ id: z.number().int().positive() })
+  .loose();
+
 export const storeInfoSchema = z.object({
   id: z.string(),
   name: z.string(),
