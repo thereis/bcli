@@ -47,6 +47,7 @@ bcli export customers customer-migration \
   --all \
   --columns-file mappings/customer-migration.json \
   --batch-size 1000 \
+  --request-delay-ms 250 \
   --export
 
 # Export the 100 oldest customers as a sample
@@ -74,12 +75,22 @@ Start a full export with a new export key:
 bcli export customers customer-migration-v1 \
   --all \
   --batch-size 1000 \
+  --request-delay-ms 250 \
   --columns-file mappings/customer-migration.json \
   --export
 ```
 
 `--batch-size 1000` writes at most 1,000 customers to each CSV file. The
 default batch size is 1,000.
+
+`--request-delay-ms 250` waits 250 milliseconds between roster-page and
+customer-detail requests. The export also retries HTTP 429 responses using
+BigCommerce's rate-limit reset header. The manifest saves the delay, so
+`--resume` continues with the same setting.
+
+A 250-millisecond delay caps this exporter at about four requests per second.
+The store quota is shared with other apps, so a fixed delay cannot prevent
+every 429 response. The reset-header retry remains the final safeguard.
 
 ```text
 exports/customer-migration-v1/

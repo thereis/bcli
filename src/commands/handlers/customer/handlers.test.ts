@@ -1047,6 +1047,29 @@ describe('exportAllCustomersHandler', () => {
     ).rejects.toThrow(/cannot be combined/);
     expect(requested).toBe(false);
   });
+
+  test('resume rejects a request-delay override', async () => {
+    await expect(
+      exportAllCustomersHandler(
+        { key: 'migration' },
+        {
+          resume: true,
+          export: true,
+          incremental: false,
+          batchSize: 1000,
+          requestDelayMs: 500,
+        },
+        {
+          loadFormFields: () => [],
+          getAllCustomerIds: async () => [],
+          fetchCustomersByIds: async () => [],
+          rootDir: 'unused',
+          now: () => 'unused',
+          randomUUID: () => '00000000-0000-4000-8000-000000000001',
+        },
+      ),
+    ).rejects.toThrow(/saved selection, mapping, and batch settings/);
+  });
 });
 
 describe('registrars', () => {

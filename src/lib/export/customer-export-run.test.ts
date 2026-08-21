@@ -44,6 +44,8 @@ describe('runCustomerBatchExport', () => {
   test('passes the sample limit to roster collection and freezes the result', async () => {
     const rootDir = temporaryDirectory();
     let requestedLimit: number | undefined;
+    let requestedDelay: number | undefined;
+    let detailDelay: number | undefined;
     const result = await runCustomerBatchExport(
       {
         key: 'sample',
@@ -51,14 +53,19 @@ describe('runCustomerBatchExport', () => {
         export: true,
         batchSize: 100,
         limit: 2,
+        requestDelayMs: 250,
         columns,
       },
       {
-        getAllCustomerIds: async (limit) => {
+        getAllCustomerIds: async (limit, requestDelayMs) => {
           requestedLimit = limit;
+          requestedDelay = requestDelayMs;
           return [50, 3];
         },
-        fetchCustomersByIds: async (ids) => ids.map(makeCustomer),
+        fetchCustomersByIds: async (ids, requestDelayMs) => {
+          detailDelay = requestDelayMs;
+          return ids.map(makeCustomer);
+        },
         rootDir,
         now: () => '2026-08-21T12:00:00.000Z',
         randomUUID: fixedUuid,
@@ -68,9 +75,12 @@ describe('runCustomerBatchExport', () => {
     expect(result.customerCount).toBe(2);
     expect(result.batchCount).toBe(1);
     expect(requestedLimit).toBe(2);
+    expect(requestedDelay).toBe(250);
+    expect(detailDelay).toBe(250);
     expect(loadCustomerExportManifest(rootDir, 'sample')).toMatchObject({
       customerIds: [3, 50],
       limit: 2,
+      requestDelayMs: 250,
       nextBatch: 1,
     });
   });
@@ -124,6 +134,7 @@ describe('runCustomerBatchExport', () => {
           resume: false,
           export: true,
           batchSize: 2,
+          requestDelayMs: 250,
           columns,
         },
         {
@@ -152,7 +163,10 @@ describe('runCustomerBatchExport', () => {
         getAllCustomerIds: async () => {
           throw new Error('resume must use the saved roster');
         },
-        fetchCustomersByIds: async (ids) => ids.map(makeCustomer),
+        fetchCustomersByIds: async (ids, requestDelayMs) => {
+          expect(requestDelayMs).toBe(250);
+          return ids.map(makeCustomer);
+        },
         rootDir,
         now: () => 'unused',
         randomUUID: fixedUuid,

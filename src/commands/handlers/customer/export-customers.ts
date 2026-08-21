@@ -53,6 +53,7 @@ export type ExportCustomersOptions = {
   all?: boolean;
   batchSize?: number;
   limit?: number;
+  requestDelayMs?: number;
 };
 
 export type ExportCustomersDeps = {
@@ -257,7 +258,8 @@ export const exportAllCustomersHandler = async (
     options.incremental ||
     options.fullColumns ||
     options.outputPrefix ||
-    options.limit
+    options.limit ||
+    options.requestDelayMs !== undefined
   ) {
     exitWithError(
       'Resume uses the saved selection, mapping, and batch settings. Run only: bcli export customers <key> --resume --export',
@@ -297,6 +299,7 @@ export const exportAllCustomersHandler = async (
       export: options.export,
       batchSize: options.batchSize ?? 1_000,
       limit: options.limit,
+      requestDelayMs: options.requestDelayMs ?? 0,
       outputPrefix: options.outputPrefix,
       columns,
     },
@@ -388,10 +391,19 @@ export const registerExportCustomersSubcommand = (parent: Cli.Cli) => {
         .describe(
           'Export only the oldest N customers by date_created (only with --all)',
         ),
+      requestDelayMs: z.coerce
+        .number()
+        .int()
+        .nonnegative()
+        .max(60_000)
+        .optional()
+        .describe(
+          'Wait this many milliseconds between BigCommerce export requests',
+        ),
     }),
     hint: [
       'Sample: bcli export customers customer-sample --all --limit 100 --columns-file mappings/customer-migration.json --export',
-      'Start: bcli export customers customer-migration --all --columns-file mappings/customer-migration.json --batch-size 1000 --export',
+      'Start: bcli export customers customer-migration --all --columns-file mappings/customer-migration.json --batch-size 1000 --request-delay-ms 250 --export',
       'Resume: bcli export customers customer-migration --resume --export',
       'addresses[last] is the final saved address returned by the customer API, not an order billing address.',
     ].join('\n'),
@@ -407,8 +419,10 @@ export const registerExportCustomersSubcommand = (parent: Cli.Cli) => {
         ? await runHandler(() =>
             exportAllCustomersHandler(c.args, c.options, {
               loadFormFields,
-              getAllCustomerIds: (limit) => bc.getAllCustomerIds(limit),
-              fetchCustomersByIds: (ids) => bc.fetchCustomersByIds(ids),
+              getAllCustomerIds: (limit, requestDelayMs) =>
+                bc.getAllCustomerIds(limit, requestDelayMs),
+              fetchCustomersByIds: (ids, requestDelayMs) =>
+                bc.fetchCustomersByIds(ids, requestDelayMs),
               rootDir: 'exports',
               now: () => new Date().toISOString(),
               randomUUID,

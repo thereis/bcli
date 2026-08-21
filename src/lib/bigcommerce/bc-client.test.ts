@@ -212,6 +212,50 @@ describe('lookupCustomersByEmails', () => {
 });
 
 describe('all-customer export reads', () => {
+  test('paces roster and detail requests with one shared delay', async () => {
+    const delays: number[] = [];
+    const requests: string[] = [];
+    routes['/stores/x/v3/customers'] = (_request, url) => {
+      const requestedIds = url.searchParams.get('id:in');
+      if (requestedIds) {
+        requests.push(`details:${requestedIds}`);
+        return customerResp(
+          requestedIds
+            .split(',')
+            .map((id) => ({ ...sampleCustomer, id: Number(id) })),
+        );
+      }
+
+      const page = Number(url.searchParams.get('page'));
+      requests.push(`roster:${page}`);
+      return Response.json({
+        data: [{ id: page }],
+        meta: {
+          pagination: pagination({
+            total: 2,
+            count: 1,
+            current_page: page,
+            total_pages: 2,
+          }),
+        },
+      });
+    };
+
+    const bc = createBcClient({
+      sleep: async (milliseconds) => {
+        delays.push(milliseconds);
+      },
+    });
+    const base = `http://localhost:${port}/stores/x`;
+    (bc.http as unknown as { v3: string }).v3 = `${base}/v3`;
+
+    const ids = await bc.getAllCustomerIds(undefined, 250);
+    await bc.fetchCustomersByIds(ids, 250);
+
+    expect(requests).toEqual(['roster:1', 'roster:2', 'details:1,2']);
+    expect(delays).toEqual([250, 250]);
+  });
+
   test('getAllCustomerIds paginates without loading related records', async () => {
     const includes: Array<string | null> = [];
     routes['/stores/x/v3/customers'] = (_request, url) => {

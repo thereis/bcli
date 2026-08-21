@@ -23,6 +23,7 @@ const manifestSchema = z
     key: z.string(),
     outputPrefix: z.string(),
     batchSize: z.number().int().positive(),
+    requestDelayMs: z.number().int().nonnegative().default(0),
     limit: z.number().int().positive().optional(),
     mapping: z
       .object({
@@ -47,14 +48,21 @@ export type CustomerBatchExportOptions = {
   resume: boolean;
   export: boolean;
   batchSize: number;
+  requestDelayMs?: number;
   limit?: number;
   outputPrefix?: string;
   columns?: ColumnPlan;
 };
 
 export type CustomerBatchExportDeps = {
-  getAllCustomerIds: (limit?: number) => Promise<number[]>;
-  fetchCustomersByIds: (ids: number[]) => Promise<Customer[]>;
+  getAllCustomerIds: (
+    limit?: number,
+    requestDelayMs?: number,
+  ) => Promise<number[]>;
+  fetchCustomersByIds: (
+    ids: number[],
+    requestDelayMs?: number,
+  ) => Promise<Customer[]>;
   rootDir: string;
   now: () => string;
   randomUUID: () => string;
@@ -175,7 +183,7 @@ export const runCustomerBatchExport = async (
     }
     plan = options.columns;
     const allCustomerIds = uniqueSortedIds(
-      await deps.getAllCustomerIds(options.limit),
+      await deps.getAllCustomerIds(options.limit, options.requestDelayMs ?? 0),
     );
     const customerIds = options.limit
       ? allCustomerIds.slice(0, options.limit)
@@ -189,6 +197,7 @@ export const runCustomerBatchExport = async (
       key: options.key,
       outputPrefix,
       batchSize: options.batchSize,
+      requestDelayMs: options.requestDelayMs ?? 0,
       limit: options.limit,
       mapping: plan.mapping,
       mappingFingerprint: plan.fingerprint,
@@ -235,7 +244,10 @@ export const runCustomerBatchExport = async (
       batchFile: file,
       randomUUID: deps.randomUUID,
     });
-    const customers = await deps.fetchCustomersByIds(ids);
+    const customers = await deps.fetchCustomersByIds(
+      ids,
+      manifest.requestDelayMs,
+    );
     const byId = new Map(customers.map((customer) => [customer.id, customer]));
     const orderedCustomers = ids.flatMap((id) => {
       const customer = byId.get(id);
