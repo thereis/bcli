@@ -48,6 +48,7 @@ bcli export customers customer-migration \
   --columns-file mappings/customer-migration.json \
   --batch-size 1000 \
   --request-delay-ms 250 \
+  --concurrency 8 \
   --export
 
 # Export the 100 oldest customers as a sample
@@ -67,6 +68,49 @@ before each CSV batch is published, so retrying an incomplete batch reuses the
 same IDs. `addresses[last]` selects the final saved address returned by the
 customer API. It does not query the billing address from the latest order.
 
+#### Stream every customer to one CSV (fastest)
+
+```sh
+bcli export customers customer-migration-stream \
+  --all --stream \
+  --columns-file mappings/customer-migration.json \
+  --concurrency 16 \
+  --export
+```
+
+`--stream` pages through `/customers` with `include=addresses,formfields` and
+writes rows to CSV as each page arrives. One request returns 250 fully
+hydrated customers, so a three-million-customer store costs about 12,900
+requests instead of the 72,000 the batched exporter needs (a roster pass of
+12,900 pages that keeps only the IDs, plus 64,497 fetches of 50 IDs each).
+
+Memory stays flat: a page is fetched, mapped, appended, and dropped. Nothing
+accumulates.
+
+`--concurrency` splits the page range into that many contiguous shards, each
+writing its own part file. The parts are concatenated into a single
+`<prefix>.csv` when every shard finishes.
+
+```text
+exports/customer-migration-stream/
+├── stream-state.json                  next page + byte offset per shard
+├── customer-migration-stream-part-001.csv
+├── customer-migration-stream-part-002.csv
+└── customer-migration-stream.csv      the merged result
+```
+
+A streamed run and a batched run cannot share an export key. Starting either
+one against a directory that already holds the other is rejected.
+
+`--resume --export` continues from each shard's last completed page. Part files
+are truncated to the byte offset recorded in `stream-state.json` first, so a
+half-written row from a killed process is discarded rather than corrupting the
+output.
+
+This relies on offset pagination staying stable during the run, which holds
+when customers are never deleted. If your store deletes customers, use the
+batched exporter below instead.
+
 #### Export customers in batches
 
 Start a full export with a new export key:
@@ -76,29 +120,59 @@ bcli export customers customer-migration-v1 \
   --all \
   --batch-size 1000 \
   --request-delay-ms 250 \
+  --concurrency 8 \
   --columns-file mappings/customer-migration.json \
   --export
 ```
 
 `--batch-size 1000` writes at most 1,000 customers to each CSV file. The
-default batch size is 1,000.
+default batch size is 1,000, and the maximum is 10,000.
+
+Keep the batch size at or above 50. Customer details are fetched 50 IDs per
+request, so a smaller batch wastes most of each request: `--batch-size 1`
+turns a three-million-customer export into three million requests instead of
+sixty thousand.
 
 `--request-delay-ms 250` waits 250 milliseconds between roster-page and
 customer-detail requests. The export also retries HTTP 429 responses using
-BigCommerce's rate-limit reset header. The manifest saves the delay, so
-`--resume` continues with the same setting.
+BigCommerce's rate-limit reset header. Each roster page is checkpointed to
+disk, so `--resume` continues from the next page instead of starting over.
+The manifest saves the delay, so `--resume` also keeps the same setting.
 
 A 250-millisecond delay caps this exporter at about four requests per second.
 The store quota is shared with other apps, so a fixed delay cannot prevent
 every 429 response. The reset-header retry remains the final safeguard.
 
+`--concurrency 8` runs up to eight export requests at once. Roster pages after
+the first are fetched in parallel, as are the customer-detail requests inside
+each batch, so the first CSV file lands far sooner on a large store. The
+default is 1, which keeps every request sequential.
+
+Concurrency does not raise the request rate. `--request-delay-ms` stays a
+global cap across all in-flight requests: at 250 milliseconds the exporter
+still starts at most four requests per second whether concurrency is 1 or 8.
+Raising concurrency hides network latency rather than sending more traffic. The
+manifest saves the setting, and `--resume` reuses it unless you pass a new
+`--concurrency`. It is the one saved setting resume lets you change, because it
+cannot alter the request rate. The real ceiling is your BigCommerce plan's API
+quota: past it the store returns 429 and the retry backs off to the quota rate.
+
 ```text
 exports/customer-migration-v1/
-├── manifest.json
+├── manifest.json          settings + mapping, written once
+├── customer-ids.jsonl     the frozen customer IDs, written once
+├── progress.json          next batch + missing IDs, written per batch
 ├── customer-migration-v1-000001.csv
 ├── customer-migration-v1-000002.csv
 └── .state/
 ```
+
+The frozen ID list lives in `customer-ids.jsonl` rather than inside
+`manifest.json`, so finishing a batch rewrites only the few hundred bytes of
+`progress.json`. On a three-million-customer export that is the difference
+between about 108 GB and about 200 KB of progress writes. A manifest saved by
+an older version is split into these three files the first time you `--resume`
+it.
 
 Use `--limit` to test the mapping before the full export. This command writes
 100 customers across four files:
@@ -118,8 +192,11 @@ If an export stops, resume it with the same key:
 bcli export customers customer-migration-v1 --resume --export
 ```
 
-The manifest stores the customer roster, the mapping, and the first incomplete
-batch. Resume skips completed batches and reuses generated UUIDs.
+While the roster is still being collected, the run directory holds
+`roster-checkpoint.json` and `roster-ids.jsonl`. After the roster is frozen,
+the manifest stores the customer IDs, the mapping, and the first incomplete
+batch. Resume continues an unfinished roster, then skips completed batches and
+reuses generated UUIDs.
 
 An export key cannot overwrite an existing export. To run the export again
 with new data or a changed mapping, use a new key such as

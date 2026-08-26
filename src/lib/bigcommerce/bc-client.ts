@@ -1,4 +1,5 @@
 import { env } from '../config/env.ts';
+import { handlePromise } from '../shared/handle-promise.ts';
 import { logger } from '../shared/logger.ts';
 import {
   loadProgress,
@@ -48,17 +49,45 @@ export const createBcClient = (deps: BcClientDeps = {}) => {
     ((milliseconds: number) =>
       new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
   let completedExportRequest = false;
+  let paceGate = Promise.resolve();
 
-  const runExportRequest = async <T>(
+  const runExportRequest = <T>(
     requestDelayMs: number,
     request: () => Promise<T>,
   ): Promise<T> => {
-    if (completedExportRequest && requestDelayMs > 0) {
-      await sleep(requestDelayMs);
-    }
-    const result = await request();
-    completedExportRequest = true;
-    return result;
+    const slot = paceGate.then(async () => {
+      if (completedExportRequest && requestDelayMs > 0) {
+        await sleep(requestDelayMs);
+      }
+      completedExportRequest = true;
+    });
+    paceGate = slot;
+    return slot.then(request);
+  };
+
+  const runWithConcurrency = async <R>(
+    count: number,
+    concurrency: number,
+    worker: (index: number) => Promise<R>,
+  ): Promise<R[]> => {
+    const results: R[] = new Array(count);
+    let cursor = 0;
+    let failed = false;
+    const workerCount = Math.min(Math.max(1, concurrency), count);
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (!failed && cursor < count) {
+          const index = cursor++;
+          const [error, value] = await handlePromise(worker(index));
+          if (error) {
+            failed = true;
+            throw error;
+          }
+          results[index] = value;
+        }
+      }),
+    );
+    return results;
   };
 
   const getStoreInfo = async (): Promise<StoreInfo> => {
@@ -147,12 +176,24 @@ export const createBcClient = (deps: BcClientDeps = {}) => {
   const getAllCustomerIds = async (
     limit?: number,
     requestDelayMs = 0,
+    options: {
+      startPage?: number;
+      collectedCount?: number;
+      concurrency?: number;
+      onPage?: (page: {
+        page: number;
+        totalPages: number;
+        ids: number[];
+        complete: boolean;
+      }) => void | Promise<void>;
+    } = {},
   ): Promise<number[]> => {
     const ids: number[] = [];
-    let page = 1;
     const pageLimit = limit ? Math.min(LIMIT, limit) : LIMIT;
+    const collectedCount = options.collectedCount ?? 0;
+    const concurrency = Math.max(1, options.concurrency ?? 1);
 
-    while (true) {
+    const fetchPage = async (page: number) => {
       const json = await runExportRequest(requestDelayMs, () =>
         http.getV3({
           path: '/customers',
@@ -164,46 +205,131 @@ export const createBcClient = (deps: BcClientDeps = {}) => {
           schema: customerIdSchema,
         }),
       );
-      ids.push(...json.data.map((customer) => customer.id));
+      return {
+        page,
+        ids: json.data.map((customer) => customer.id),
+        totalPages: json.meta.pagination?.total_pages ?? 1,
+      };
+    };
 
-      const totalPages = json.meta.pagination?.total_pages ?? 1;
-      logger.info(
-        limit
-          ? `Customer roster page ${page} | ${Math.min(ids.length, limit)}/${limit} sample IDs`
-          : `Customer roster page ${page}/${totalPages}`,
+    let nextPage =
+      options.startPage && options.startPage > 1 ? options.startPage : 1;
+    let lastPage = nextPage;
+    let waveSize = 1;
+    let done = false;
+
+    while (!done) {
+      const outstanding = limit
+        ? Math.ceil(
+            Math.max(0, limit - collectedCount - ids.length) / pageLimit,
+          )
+        : Number.POSITIVE_INFINITY;
+      const waveCount = Math.min(
+        waveSize,
+        lastPage - nextPage + 1,
+        outstanding,
       );
-      if (limit && ids.length >= limit) {
-        logger.info(`Customer roster limit reached: ${limit}`);
-        break;
+      if (waveCount < 1) break;
+
+      const firstPage = nextPage;
+      const wave = await runWithConcurrency(waveCount, concurrency, (index) =>
+        fetchPage(firstPage + index),
+      );
+
+      for (const result of wave) {
+        ids.push(...result.ids);
+        const totalPages = result.totalPages;
+        lastPage = totalPages;
+        const totalCollected = collectedCount + ids.length;
+        const complete =
+          Boolean(limit && totalCollected >= limit) ||
+          result.page >= totalPages;
+        logger.info(
+          limit
+            ? `Customer roster page ${result.page} | ${Math.min(totalCollected, limit)}/${limit} sample IDs`
+            : `Customer roster page ${result.page}/${totalPages}`,
+        );
+        await options.onPage?.({
+          page: result.page,
+          totalPages,
+          ids: result.ids,
+          complete,
+        });
+        nextPage = result.page + 1;
+        if (limit && totalCollected >= limit) {
+          logger.info(`Customer roster limit reached: ${limit}`);
+          done = true;
+          break;
+        }
+        if (result.page >= totalPages) {
+          done = true;
+          break;
+        }
       }
-      if (page >= totalPages) break;
-      page++;
+
+      waveSize = concurrency;
     }
 
-    return limit ? ids.slice(0, limit) : ids;
+    return limit ? ids.slice(0, Math.max(0, limit - collectedCount)) : ids;
+  };
+
+  const fetchCustomerPage = async (
+    page: number,
+    requestDelayMs = 0,
+    pageSize = LIMIT,
+  ): Promise<{
+    customers: Customer[];
+    totalPages: number;
+    total: number;
+  }> => {
+    const json = await runExportRequest(requestDelayMs, () =>
+      http.getV3({
+        path: '/customers',
+        params: {
+          limit: pageSize,
+          page,
+          sort: 'id:asc',
+          include: 'addresses,formfields',
+        },
+        schema: customerSchema,
+      }),
+    );
+    return {
+      customers: json.data,
+      totalPages: json.meta.pagination?.total_pages ?? 1,
+      total: json.meta.pagination?.total ?? json.data.length,
+    };
   };
 
   const fetchCustomersByIds = async (
     ids: number[],
     requestDelayMs = 0,
+    concurrency = 1,
   ): Promise<Customer[]> => {
-    const customers: Customer[] = [];
-    for (let index = 0; index < ids.length; index += ID_BATCH_LIMIT) {
-      const batch = ids.slice(index, index + ID_BATCH_LIMIT);
-      const json = await runExportRequest(requestDelayMs, () =>
-        http.getV3({
-          path: '/customers',
-          params: {
-            'id:in': batch.join(','),
-            include: 'addresses,formfields',
-            limit: ID_BATCH_LIMIT,
-          },
-          schema: customerSchema,
-        }),
-      );
-      customers.push(...json.data);
-    }
-    return customers;
+    const chunkCount = Math.ceil(ids.length / ID_BATCH_LIMIT);
+    const chunks = await runWithConcurrency(
+      chunkCount,
+      concurrency,
+      async (index) => {
+        const batch = ids.slice(
+          index * ID_BATCH_LIMIT,
+          index * ID_BATCH_LIMIT + ID_BATCH_LIMIT,
+        );
+        const json = await runExportRequest(requestDelayMs, () =>
+          http.getV3({
+            path: '/customers',
+            params: {
+              'id:in': batch.join(','),
+              include: 'addresses,formfields',
+              limit: ID_BATCH_LIMIT,
+            },
+            schema: customerSchema,
+          }),
+        );
+        return json.data;
+      },
+    );
+    return chunks.flat();
   };
 
   const getCustomerIdsByFormField = async (
@@ -474,6 +600,7 @@ export const createBcClient = (deps: BcClientDeps = {}) => {
     lookupCustomersByEmails,
     lookupCustomer,
     getAllCustomerIds,
+    fetchCustomerPage,
     fetchCustomersByIds,
     getCustomerIdsByFormField,
     getCustomersByIds,
