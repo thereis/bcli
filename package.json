@@ -1,6 +1,6 @@
 {
   "name": "@thereis/bcli",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "BigCommerce CLI — a swiss army knife for BigCommerce stores with MCP support",
   "license": "BUSL-1.1",
   "author": "Lucas Reis",

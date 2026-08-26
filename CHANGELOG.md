@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.0](https://github.com/thereis/bcli/compare/bcli-v1.5.0...bcli-v1.6.0) (2026-08-26)
+
+
+### Features
+
+* concurrent exports ([9d78c3e](https://github.com/thereis/bcli/commit/9d78c3e0aaff38a0febc2db09ad29839910b48ea))
+* concurrent exports ([c3c2d47](https://github.com/thereis/bcli/commit/c3c2d4730aaea03b485851dae80076615cc31fe4))
+
 ## [1.5.0](https://github.com/thereis/bcli/compare/bcli-v1.4.1...bcli-v1.5.0) (2026-08-21)
 
 
