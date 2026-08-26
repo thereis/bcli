@@ -336,6 +336,97 @@ describe('all-customer export reads', () => {
     ]);
   });
 
+  test('getAllCustomerIds notifies onPage after each roster page', async () => {
+    routes['/stores/x/v3/customers'] = (_request, url) => {
+      const page = Number(url.searchParams.get('page'));
+      return Response.json({
+        data: [{ id: page }],
+        meta: {
+          pagination: pagination({
+            total: 2,
+            count: 1,
+            current_page: page,
+            total_pages: 2,
+          }),
+        },
+      });
+    };
+
+    const bc = makeClient();
+    const events: Array<{
+      page: number;
+      totalPages: number;
+      ids: number[];
+      complete: boolean;
+    }> = [];
+    expect(
+      await bc.getAllCustomerIds(undefined, 0, {
+        onPage: (event) => {
+          events.push(event);
+        },
+      }),
+    ).toEqual([1, 2]);
+    expect(events).toEqual([
+      { page: 1, totalPages: 2, ids: [1], complete: false },
+      { page: 2, totalPages: 2, ids: [2], complete: true },
+    ]);
+  });
+
+  test('getAllCustomerIds resumes from startPage with collectedCount', async () => {
+    const requested: string[] = [];
+    routes['/stores/x/v3/customers'] = (_request, url) => {
+      const page = Number(url.searchParams.get('page'));
+      requested.push(String(page));
+      return Response.json({
+        data: [{ id: page }],
+        meta: {
+          pagination: pagination({
+            total: 3,
+            count: 1,
+            current_page: page,
+            total_pages: 3,
+          }),
+        },
+      });
+    };
+
+    const bc = makeClient();
+    expect(
+      await bc.getAllCustomerIds(undefined, 0, {
+        startPage: 2,
+        collectedCount: 1,
+      }),
+    ).toEqual([2, 3]);
+    expect(requested).toEqual(['2', '3']);
+  });
+
+  test('getAllCustomerIds stops a sample using collectedCount', async () => {
+    let requests = 0;
+    routes['/stores/x/v3/customers'] = (_request, url) => {
+      requests++;
+      expect(url.searchParams.get('limit')).toBe('100');
+      expect(url.searchParams.get('page')).toBe('2');
+      return Response.json({
+        data: Array.from({ length: 100 }, (_, index) => ({ id: index + 51 })),
+        meta: {
+          pagination: pagination({
+            total: 451_250,
+            count: 100,
+            per_page: 100,
+            current_page: 2,
+            total_pages: 4_513,
+          }),
+        },
+      });
+    };
+
+    const bc = makeClient();
+    expect(
+      await bc.getAllCustomerIds(100, 0, { startPage: 2, collectedCount: 50 }),
+    ).toEqual(Array.from({ length: 50 }, (_, index) => index + 51));
+    expect(requests).toBe(1);
+  });
+
   test('fetchCustomersByIds splits API requests into groups of 50', async () => {
     const batches: string[] = [];
     routes['/stores/x/v3/customers'] = (_request, url) => {
@@ -352,6 +443,282 @@ describe('all-customer export reads', () => {
     expect(batches).toHaveLength(2);
     expect(batches[0]?.split(',')).toHaveLength(50);
     expect(batches[1]?.split(',')).toHaveLength(10);
+  });
+
+  test('fetchCustomersByIds runs chunks concurrently up to the cap', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    routes['/stores/x/v3/customers'] = async (_request, url) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await Bun.sleep(10);
+      inFlight--;
+      const ids = url.searchParams.get('id:in') ?? '';
+      return customerResp(
+        ids.split(',').map((id) => ({ ...sampleCustomer, id: Number(id) })),
+      );
+    };
+
+    const bc = makeClient();
+    const ids = Array.from({ length: 400 }, (_, index) => index + 1);
+    const customers = await bc.fetchCustomersByIds(ids, 0, 4);
+    expect(customers).toHaveLength(400);
+    expect(peak).toBe(4);
+  });
+
+  test('fetchCustomerPage requests one hydrated page sorted by id', async () => {
+    let seen: URLSearchParams | undefined;
+    routes['/stores/x/v3/customers'] = (_request, url) => {
+      seen = url.searchParams;
+      return Response.json({
+        data: [sampleCustomer, { ...sampleCustomer, id: 2 }],
+        meta: {
+          pagination: pagination({
+            total: 3_224_828,
+            count: 2,
+            current_page: 7,
+            total_pages: 12_900,
+          }),
+        },
+      });
+    };
+
+    const bc = makeClient();
+    const page = await bc.fetchCustomerPage(7);
+
+    expect(page.customers.map((customer) => customer.id)).toEqual([1, 2]);
+    expect(page.totalPages).toBe(12_900);
+    expect(page.total).toBe(3_224_828);
+    expect(seen?.get('page')).toBe('7');
+    expect(seen?.get('limit')).toBe('250');
+    expect(seen?.get('sort')).toBe('id:asc');
+    expect(seen?.get('include')).toBe('addresses,formfields');
+  });
+
+  test('fetchCustomerPage honours a smaller page size and paces requests', async () => {
+    routes['/stores/x/v3/customers'] = (_request, url) => {
+      expect(url.searchParams.get('limit')).toBe('40');
+      return Response.json({
+        data: [sampleCustomer],
+        meta: { pagination: pagination() },
+      });
+    };
+
+    const delays: number[] = [];
+    const bc = createBcClient({
+      sleep: async (milliseconds) => {
+        delays.push(milliseconds);
+      },
+    });
+    (bc.http as unknown as { v3: string }).v3 =
+      `http://localhost:${port}/stores/x/v3`;
+
+    await bc.fetchCustomerPage(1, 100, 40);
+    await bc.fetchCustomerPage(2, 100, 40);
+    expect(delays).toEqual([100]);
+  });
+
+  test('fetchCustomerPage falls back when pagination metadata is absent', async () => {
+    routes['/stores/x/v3/customers'] = () =>
+      Response.json({ data: [sampleCustomer], meta: {} });
+
+    const bc = makeClient();
+    const page = await bc.fetchCustomerPage(1);
+    expect(page.totalPages).toBe(1);
+    expect(page.total).toBe(1);
+  });
+
+  test('fetchCustomersByIds stops issuing requests once a chunk fails', async () => {
+    let requests = 0;
+    routes['/stores/x/v3/customers'] = async (_request, url) => {
+      requests++;
+      const ids = url.searchParams.get('id:in') ?? '';
+      await Bun.sleep(5);
+      if (ids.startsWith('101,')) return new Response('boom', { status: 500 });
+      return customerResp(
+        ids.split(',').map((id) => ({ ...sampleCustomer, id: Number(id) })),
+      );
+    };
+
+    const bc = makeClient();
+    const ids = Array.from({ length: 1_000 }, (_, index) => index + 1);
+    await expect(bc.fetchCustomersByIds(ids, 0, 4)).rejects.toThrow();
+    expect(requests).toBeLessThan(12);
+  });
+
+  test('fetchCustomersByIds keeps chunk order when later chunks finish first', async () => {
+    routes['/stores/x/v3/customers'] = async (_request, url) => {
+      const ids = url.searchParams.get('id:in') ?? '';
+      const first = Number(ids.split(',')[0]);
+      await Bun.sleep(first === 1 ? 30 : 1);
+      return customerResp(
+        ids.split(',').map((id) => ({ ...sampleCustomer, id: Number(id) })),
+      );
+    };
+
+    const bc = makeClient();
+    const ids = Array.from({ length: 150 }, (_, index) => index + 1);
+    const customers = await bc.fetchCustomersByIds(ids, 0, 3);
+    expect(customers.map((customer) => customer.id)).toEqual(ids);
+  });
+
+  test('fetchCustomersByIds defaults to one request at a time', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    routes['/stores/x/v3/customers'] = async (_request, url) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await Bun.sleep(5);
+      inFlight--;
+      const ids = url.searchParams.get('id:in') ?? '';
+      return customerResp(
+        ids.split(',').map((id) => ({ ...sampleCustomer, id: Number(id) })),
+      );
+    };
+
+    const bc = makeClient();
+    await bc.fetchCustomersByIds(
+      Array.from({ length: 150 }, (_, index) => index + 1),
+    );
+    expect(peak).toBe(1);
+  });
+
+  test('request pacing stays a global rate cap under concurrency', async () => {
+    routes['/stores/x/v3/customers'] = async (_request, url) => {
+      await Bun.sleep(5);
+      const ids = url.searchParams.get('id:in') ?? '';
+      return customerResp(
+        ids.split(',').map((id) => ({ ...sampleCustomer, id: Number(id) })),
+      );
+    };
+
+    const delays: number[] = [];
+    let sleeping = 0;
+    let peakSleeping = 0;
+    const bc = createBcClient({
+      sleep: async (milliseconds) => {
+        delays.push(milliseconds);
+        sleeping++;
+        peakSleeping = Math.max(peakSleeping, sleeping);
+        await Bun.sleep(1);
+        sleeping--;
+      },
+    });
+    (bc.http as unknown as { v3: string }).v3 =
+      `http://localhost:${port}/stores/x/v3`;
+
+    await bc.fetchCustomersByIds(
+      Array.from({ length: 400 }, (_, index) => index + 1),
+      250,
+      4,
+    );
+
+    expect(delays).toEqual(Array.from({ length: 7 }, () => 250));
+    expect(peakSleeping).toBe(1);
+  });
+
+  test('getAllCustomerIds fetches roster pages concurrently after the first', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    routes['/stores/x/v3/customers'] = async (_request, url) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await Bun.sleep(10);
+      inFlight--;
+      const page = Number(url.searchParams.get('page'));
+      return Response.json({
+        data: [{ id: page }],
+        meta: {
+          pagination: pagination({
+            total: 5,
+            count: 1,
+            current_page: page,
+            total_pages: 5,
+          }),
+        },
+      });
+    };
+
+    const bc = makeClient();
+    const pages: number[] = [];
+    const ids = await bc.getAllCustomerIds(undefined, 0, {
+      concurrency: 4,
+      onPage: (event) => {
+        pages.push(event.page);
+      },
+    });
+
+    expect(ids).toEqual([1, 2, 3, 4, 5]);
+    expect(pages).toEqual([1, 2, 3, 4, 5]);
+    expect(peak).toBe(4);
+  });
+
+  test('getAllCustomerIds never over-fetches pages beyond a sample limit', async () => {
+    const requested: number[] = [];
+    routes['/stores/x/v3/customers'] = (_request, url) => {
+      const page = Number(url.searchParams.get('page'));
+      requested.push(page);
+      return Response.json({
+        data: Array.from({ length: 250 }, (_, index) => ({
+          id: (page - 1) * 250 + index + 1,
+        })),
+        meta: {
+          pagination: pagination({
+            total: 10_000,
+            count: 250,
+            current_page: page,
+            total_pages: 40,
+          }),
+        },
+      });
+    };
+
+    const bc = makeClient();
+    const ids = await bc.getAllCustomerIds(600, 0, { concurrency: 8 });
+    expect(ids).toHaveLength(600);
+    expect(requested.sort((left, right) => left - right)).toEqual([1, 2, 3]);
+  });
+
+  test('getAllCustomerIds skips fetching when the sample is already collected', async () => {
+    let requests = 0;
+    routes['/stores/x/v3/customers'] = () => {
+      requests++;
+      return Response.json({
+        data: [{ id: 1 }],
+        meta: { pagination: pagination() },
+      });
+    };
+
+    const bc = makeClient();
+    expect(
+      await bc.getAllCustomerIds(50, 0, { startPage: 2, collectedCount: 50 }),
+    ).toEqual([]);
+    expect(requests).toBe(0);
+  });
+
+  test('getAllCustomerIds stops a concurrent wave at the last page', async () => {
+    const requested: number[] = [];
+    routes['/stores/x/v3/customers'] = (_request, url) => {
+      const page = Number(url.searchParams.get('page'));
+      requested.push(page);
+      return Response.json({
+        data: [{ id: page }],
+        meta: {
+          pagination: pagination({
+            total: 3,
+            count: 1,
+            current_page: page,
+            total_pages: 3,
+          }),
+        },
+      });
+    };
+
+    const bc = makeClient();
+    expect(
+      await bc.getAllCustomerIds(undefined, 0, { concurrency: 8 }),
+    ).toEqual([1, 2, 3]);
+    expect(requested.sort((left, right) => left - right)).toEqual([1, 2, 3]);
   });
 });
 

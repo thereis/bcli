@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Customer } from '../../../lib/bigcommerce/schemas.ts';
@@ -9,6 +9,7 @@ import {
   type ExportCustomersDeps,
   exportAllCustomersHandler,
   exportCustomersHandler,
+  exportStreamCustomersHandler,
   registerExportCustomersSubcommand,
   validateField,
 } from './export-customers.ts';
@@ -1069,6 +1070,312 @@ describe('exportAllCustomersHandler', () => {
         },
       ),
     ).rejects.toThrow(/saved selection, mapping, and batch settings/);
+  });
+
+  test('resume accepts a concurrency override', async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), 'all-customers-resume-'));
+    await expect(
+      exportAllCustomersHandler(
+        { key: 'migration' },
+        {
+          all: true,
+          columns: 'customerId:id',
+          resume: false,
+          export: true,
+          incremental: false,
+          batchSize: 1000,
+        },
+        {
+          loadFormFields: () => [],
+          getAllCustomerIds: async () => [1],
+          fetchCustomersByIds: async () => {
+            throw new Error('first run interrupted');
+          },
+          rootDir,
+          now: () => '2026-08-21T12:00:00.000Z',
+          randomUUID: () => '00000000-0000-4000-8000-000000000001',
+        },
+      ),
+    ).rejects.toThrow('first run interrupted');
+
+    let detailConcurrency: number | undefined;
+    await exportAllCustomersHandler(
+      { key: 'migration' },
+      {
+        resume: true,
+        export: true,
+        incremental: false,
+        batchSize: 1000,
+        concurrency: 12,
+      },
+      {
+        loadFormFields: () => [],
+        getAllCustomerIds: async () => {
+          throw new Error('resume must not recollect the roster');
+        },
+        fetchCustomersByIds: async (_ids, _delay, concurrency) => {
+          detailConcurrency = concurrency;
+          return [];
+        },
+        rootDir,
+        now: () => '2026-08-21T12:00:00.000Z',
+        randomUUID: () => '00000000-0000-4000-8000-000000000001',
+      },
+    );
+    rmSync(rootDir, { recursive: true, force: true });
+
+    expect(detailConcurrency).toBe(12);
+  });
+
+  test('passes concurrency through to the batch export run', async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), 'all-customers-concurrency-'));
+    let rosterConcurrency: number | undefined;
+    let detailConcurrency: number | undefined;
+    await exportAllCustomersHandler(
+      { key: 'migration' },
+      {
+        all: true,
+        columns: 'customerId:id',
+        resume: false,
+        export: true,
+        incremental: false,
+        batchSize: 1000,
+        concurrency: 8,
+      },
+      {
+        loadFormFields: () => [],
+        getAllCustomerIds: async (_limit, _delay, roster) => {
+          rosterConcurrency = roster?.concurrency;
+          return [1];
+        },
+        fetchCustomersByIds: async (ids, _delay, concurrency) => {
+          detailConcurrency = concurrency;
+          return ids.map((id) => ({
+            id,
+            email: `user-${id}@example.com`,
+            first_name: 'First',
+            last_name: 'Last',
+            phone: '',
+            addresses: [],
+            form_fields: [],
+          }));
+        },
+        rootDir,
+        now: () => '2026-08-21T12:00:00.000Z',
+        randomUUID: () => '00000000-0000-4000-8000-000000000001',
+      },
+    );
+    rmSync(rootDir, { recursive: true, force: true });
+
+    expect(rosterConcurrency).toBe(8);
+    expect(detailConcurrency).toBe(8);
+  });
+});
+
+describe('exportStreamCustomersHandler', () => {
+  const streamDeps = (rootDir: string, total = 500) => ({
+    loadFormFields: () => [],
+    fetchCustomerPage: async (page: number) => {
+      const start = (page - 1) * 250;
+      return {
+        customers: Array.from(
+          { length: Math.max(0, Math.min(250, total - start)) },
+          (_unused, index) => ({
+            id: start + index + 1,
+            email: `user-${start + index + 1}@example.com`,
+            first_name: 'First',
+            last_name: 'Last',
+            phone: '',
+            addresses: [],
+            form_fields: [],
+          }),
+        ),
+        totalPages: Math.ceil(total / 250),
+        total,
+      };
+    },
+    rootDir,
+    now: () => '2026-08-21T12:00:00.000Z',
+    randomUUID: () => '00000000-0000-4000-8000-000000000001',
+  });
+
+  test('streams every customer into one file', async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), 'stream-handler-'));
+    const result = await exportStreamCustomersHandler(
+      { key: 'migration' },
+      {
+        all: true,
+        stream: true,
+        columns: 'customerId:id,email:email',
+        resume: false,
+        export: true,
+        incremental: false,
+        concurrency: 2,
+      },
+      streamDeps(rootDir),
+    );
+
+    expect(result.written).toBe(500);
+    expect(
+      readFileSync(result.outputFile, 'utf-8').trim().split('\n'),
+    ).toHaveLength(501);
+    rmSync(rootDir, { recursive: true, force: true });
+  });
+
+  test('rejects resuming without --export', async () => {
+    await expect(
+      exportStreamCustomersHandler(
+        { key: 'migration' },
+        { stream: true, resume: true, export: false, incremental: false },
+        streamDeps('unused'),
+      ),
+    ).rejects.toThrow(/requires --export/);
+  });
+
+  test('rejects combining --stream with a field filter', async () => {
+    await expect(
+      exportStreamCustomersHandler(
+        { key: 'migration' },
+        {
+          stream: true,
+          field: 'Trusted',
+          value: 'True',
+          resume: false,
+          export: true,
+          incremental: false,
+        },
+        streamDeps('unused'),
+      ),
+    ).rejects.toThrow(/cannot be combined with --field/);
+  });
+
+  test('rejects --incremental and --full-columns with --stream', async () => {
+    await expect(
+      exportStreamCustomersHandler(
+        { key: 'migration' },
+        { stream: true, resume: false, export: true, incremental: true },
+        streamDeps('unused'),
+      ),
+    ).rejects.toThrow(/--incremental is not used/);
+
+    await expect(
+      exportStreamCustomersHandler(
+        { key: 'migration' },
+        {
+          stream: true,
+          resume: false,
+          export: true,
+          incremental: false,
+          fullColumns: 'a:id',
+        },
+        streamDeps('unused'),
+      ),
+    ).rejects.toThrow(/--full-columns is not used/);
+  });
+
+  test('requires exactly one column source', async () => {
+    await expect(
+      exportStreamCustomersHandler(
+        { key: 'migration' },
+        { stream: true, resume: false, export: true, incremental: false },
+        streamDeps('unused'),
+      ),
+    ).rejects.toThrow(/exactly one of --columns or --columns-file/);
+  });
+
+  test('refuses to stream into a directory holding a batched run', async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), 'stream-collide-'));
+    await exportAllCustomersHandler(
+      { key: 'migration' },
+      {
+        all: true,
+        columns: 'customerId:id',
+        resume: false,
+        export: true,
+        incremental: false,
+        batchSize: 1000,
+      },
+      {
+        loadFormFields: () => [],
+        getAllCustomerIds: async () => [1],
+        fetchCustomersByIds: async () => [],
+        rootDir,
+        now: () => '2026-08-21T12:00:00.000Z',
+        randomUUID: () => '00000000-0000-4000-8000-000000000001',
+      },
+    );
+
+    await expect(
+      exportStreamCustomersHandler(
+        { key: 'migration' },
+        {
+          stream: true,
+          columns: 'customerId:id',
+          resume: false,
+          export: true,
+          incremental: false,
+        },
+        streamDeps(rootDir),
+      ),
+    ).rejects.toThrow(/already holds a batched run/);
+    rmSync(rootDir, { recursive: true, force: true });
+  });
+
+  test('refuses to batch into a directory holding a streamed run', async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), 'batch-collide-'));
+    await exportStreamCustomersHandler(
+      { key: 'migration' },
+      {
+        stream: true,
+        columns: 'customerId:id',
+        resume: false,
+        export: true,
+        incremental: false,
+      },
+      streamDeps(rootDir),
+    );
+
+    await expect(
+      exportAllCustomersHandler(
+        { key: 'migration' },
+        {
+          all: true,
+          columns: 'customerId:id',
+          resume: false,
+          export: true,
+          incremental: false,
+          batchSize: 1000,
+        },
+        {
+          loadFormFields: () => [],
+          getAllCustomerIds: async () => [1],
+          fetchCustomersByIds: async () => [],
+          rootDir,
+          now: () => '2026-08-21T12:00:00.000Z',
+          randomUUID: () => '00000000-0000-4000-8000-000000000001',
+        },
+      ),
+    ).rejects.toThrow(/already holds a streamed run/);
+    rmSync(rootDir, { recursive: true, force: true });
+  });
+
+  test('reports the plan on a dry run', async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), 'stream-dry-'));
+    const result = await exportStreamCustomersHandler(
+      { key: 'migration' },
+      {
+        stream: true,
+        columns: 'customerId:id',
+        resume: false,
+        export: false,
+        incremental: false,
+      },
+      streamDeps(rootDir),
+    );
+
+    expect(result.exported).toBe(false);
+    expect(result.total).toBe(500);
+    rmSync(rootDir, { recursive: true, force: true });
   });
 });
 

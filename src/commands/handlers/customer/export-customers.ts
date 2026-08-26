@@ -26,6 +26,12 @@ import {
   runCustomerBatchExport,
 } from '../../../lib/export/customer-export-run.ts';
 import {
+  type CustomerStreamExportDeps,
+  type CustomerStreamExportResult,
+  customerStreamRunExists,
+  runCustomerStreamExport,
+} from '../../../lib/export/customer-stream-export.ts';
+import {
   exitWithError,
   exitWithInfo,
   runHandler,
@@ -54,6 +60,8 @@ export type ExportCustomersOptions = {
   batchSize?: number;
   limit?: number;
   requestDelayMs?: number;
+  concurrency?: number;
+  stream?: boolean;
 };
 
 export type ExportCustomersDeps = {
@@ -84,6 +92,10 @@ export type ExportCustomersResult = {
 };
 
 export type ExportAllCustomersDeps = CustomerBatchExportDeps & {
+  loadFormFields: () => FormField[];
+};
+
+export type ExportStreamCustomersDeps = CustomerStreamExportDeps & {
   loadFormFields: () => FormField[];
 };
 
@@ -233,6 +245,11 @@ export const exportAllCustomersHandler = async (
     );
   }
   if (!options.resume) {
+    if (customerStreamRunExists(deps.rootDir, args.key)) {
+      exitWithError(
+        `Export "${args.key}" already holds a streamed run. Use a different key or --resume.`,
+      );
+    }
     if (!options.all) {
       exitWithError('Batch exports require --all.');
     }
@@ -262,7 +279,7 @@ export const exportAllCustomersHandler = async (
     options.requestDelayMs !== undefined
   ) {
     exitWithError(
-      'Resume uses the saved selection, mapping, and batch settings. Run only: bcli export customers <key> --resume --export',
+      'Resume uses the saved selection, mapping, and batch settings. Only --concurrency may be changed: bcli export customers <key> --resume --export',
     );
   }
 
@@ -300,6 +317,7 @@ export const exportAllCustomersHandler = async (
       batchSize: options.batchSize ?? 1_000,
       limit: options.limit,
       requestDelayMs: options.requestDelayMs ?? 0,
+      concurrency: options.concurrency,
       outputPrefix: options.outputPrefix,
       columns,
     },
@@ -318,6 +336,70 @@ export const exportAllCustomersHandler = async (
   if (result.missingCustomerIds.length > 0) {
     logger.warn(
       `${result.missingCustomerIds.length} customers disappeared before their batch was fetched. IDs are recorded in the manifest.`,
+    );
+  }
+  return result;
+};
+
+export const exportStreamCustomersHandler = async (
+  args: ExportCustomersArgs,
+  options: ExportCustomersOptions,
+  deps: ExportStreamCustomersDeps,
+): Promise<CustomerStreamExportResult> => {
+  if (options.resume && !options.export) {
+    exitWithError(
+      'Resuming a stream export requires --export: bcli export customers <key> --resume --export',
+    );
+  }
+  if (!options.resume) {
+    if (customerExportRunExists(deps.rootDir, args.key)) {
+      exitWithError(
+        `Export "${args.key}" already holds a batched run. Use a different key for --stream.`,
+      );
+    }
+    if (options.field || options.value) {
+      exitWithError('--stream cannot be combined with --field or --value.');
+    }
+    if (options.incremental) {
+      exitWithError('--incremental is not used with --stream.');
+    }
+    if (options.fullColumns) {
+      exitWithError('--full-columns is not used with --stream.');
+    }
+    if (Boolean(options.columns) === Boolean(options.columnsFile)) {
+      exitWithError('Use exactly one of --columns or --columns-file.');
+    }
+  }
+
+  const columns = options.resume
+    ? undefined
+    : loadColumnPlan(
+        options.columnsFile
+          ? { kind: 'file', path: options.columnsFile }
+          : { kind: 'inline', value: options.columns as string },
+      );
+
+  const result = await runCustomerStreamExport(
+    {
+      key: args.key,
+      resume: options.resume,
+      export: options.export,
+      concurrency: options.concurrency,
+      requestDelayMs: options.requestDelayMs,
+      limit: options.limit,
+      outputPrefix: options.outputPrefix,
+      columns,
+    },
+    deps,
+  );
+
+  if (result.exported) {
+    logger.info(
+      `Wrote ${result.written.toLocaleString('en-US')} customers to ${result.outputFile}`,
+    );
+  } else {
+    logger.info(
+      `Dry run: ${result.total.toLocaleString('en-US')} customers across ${result.totalPages.toLocaleString('en-US')} pages`,
     );
   }
   return result;
@@ -400,16 +482,62 @@ export const registerExportCustomersSubcommand = (parent: Cli.Cli) => {
         .describe(
           'Wait this many milliseconds between BigCommerce export requests',
         ),
+      stream: z
+        .boolean()
+        .default(false)
+        .describe(
+          'Stream every customer straight to CSV as pages arrive (one request per 250 customers instead of a roster pass plus per-ID fetches)',
+        ),
+      concurrency: z.coerce
+        .number()
+        .int()
+        .positive()
+        .max(16)
+        .optional()
+        .describe(
+          'Run up to this many BigCommerce export requests at once (default: 1). --request-delay-ms stays a global rate cap across them, so this hides latency without raising the request rate. May be changed on --resume',
+        ),
     }),
     hint: [
       'Sample: bcli export customers customer-sample --all --limit 100 --columns-file mappings/customer-migration.json --export',
-      'Start: bcli export customers customer-migration --all --columns-file mappings/customer-migration.json --batch-size 1000 --request-delay-ms 250 --export',
+      'Stream (fastest): bcli export customers customer-migration-stream --all --stream --columns-file mappings/customer-migration.json --concurrency 16 --export',
+      'Start: bcli export customers customer-migration --all --columns-file mappings/customer-migration.json --batch-size 1000 --request-delay-ms 250 --concurrency 8 --export',
       'Resume: bcli export customers customer-migration --resume --export',
       'addresses[last] is the final saved address returned by the customer API, not an order billing address.',
     ].join('\n'),
     alias: { resume: 'r', export: 'e', incremental: 'i' },
     async run(c) {
       const bc = createBcClient();
+      const hasStreamRun = customerStreamRunExists('exports', c.args.key);
+      const hasBatchRun = customerExportRunExists('exports', c.args.key);
+      if (c.options.resume && hasStreamRun && hasBatchRun) {
+        exitWithError(
+          `Export "${c.args.key}" holds both a streamed and a batched run. Move one aside before resuming.`,
+        );
+      }
+      const streamed = c.options.stream || (c.options.resume && hasStreamRun);
+      if (streamed) {
+        const result = await runHandler(() =>
+          exportStreamCustomersHandler(c.args, c.options, {
+            loadFormFields,
+            fetchCustomerPage: (page, requestDelayMs, pageSize) =>
+              bc.fetchCustomerPage(page, requestDelayMs, pageSize),
+            rootDir: 'exports',
+            now: () => new Date().toISOString(),
+            randomUUID,
+          }),
+        );
+        return c.ok(result, {
+          cta: {
+            commands: [
+              {
+                command: `export customers ${c.args.key} --resume --export`,
+                description: 'Resume from the last completed page',
+              },
+            ],
+          },
+        });
+      }
       const batched =
         c.options.all ||
         c.options.columnsFile !== undefined ||
@@ -419,10 +547,10 @@ export const registerExportCustomersSubcommand = (parent: Cli.Cli) => {
         ? await runHandler(() =>
             exportAllCustomersHandler(c.args, c.options, {
               loadFormFields,
-              getAllCustomerIds: (limit, requestDelayMs) =>
-                bc.getAllCustomerIds(limit, requestDelayMs),
-              fetchCustomersByIds: (ids, requestDelayMs) =>
-                bc.fetchCustomersByIds(ids, requestDelayMs),
+              getAllCustomerIds: (limit, requestDelayMs, roster) =>
+                bc.getAllCustomerIds(limit, requestDelayMs, roster),
+              fetchCustomersByIds: (ids, requestDelayMs, concurrency) =>
+                bc.fetchCustomersByIds(ids, requestDelayMs, concurrency),
               rootDir: 'exports',
               now: () => new Date().toISOString(),
               randomUUID,
